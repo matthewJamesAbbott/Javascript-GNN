@@ -46,8 +46,4 @@ _No build scripts or server processes required._
 ## Vercel Link
 https://vercel.com/msquigs-projects/javascript-gnn-tczb
 
----
 
-If you find this useful or want to explore perceptrons or CNNs in the same style, see also [Javascript-MLP](https://github.com/matthewJamesAbbott/Javascript-MLP) and [Javascript-CNN](https://github.com/matthewJamesAbbott/Javascript-CNN).
-
-*Open code, open minds—experiment with the structure of intelligence!*
