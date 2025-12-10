@@ -1,3 +1,13 @@
+<!--
+  This HTML file allows you to configure, train, and experiment with a simple Graph Neural Network (GNN) directly in your browser.
+  The page lets you:
+    - Set how your graph and GNN should look,
+    - Enter features and edges for your graph,
+    - Train a GNN,
+    - See predictions and results.
+  All the main logic (the neural network math) is done in JavaScript at the bottom!
+-->
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -15,6 +25,8 @@
 </head>
 <body>
     <h1>Graph Neural Network (GNN)</h1>
+
+    <!-- Section: Network Configuration -->
     <div class="section">
         <h2>Network Configuration</h2>
         <label># Nodes: <input type="number" id="numNodes" value="5" min="2"></label>
@@ -24,10 +36,14 @@
         <label>Message Passing Layers: <input type="number" id="numLayers" value="2" min="1"></label>
         <button onclick="buildGraphInputs()">Apply Config</button>
     </div>
+
+    <!-- Section: Enter or See node features -->
     <div class="section">
         <h2>Node Features</h2>
         <div id="nodeInputs"></div>
     </div>
+
+    <!-- Section: Edges (as a text area, "source,target" per line) -->
     <div class="section">
         <h2>Edges (source,target, each on new line)</h2>
         <textarea id="edgeList">0,1
@@ -37,83 +53,134 @@
 4,0
 1,3</textarea>
     </div>
+
+    <!-- Section: Desired output/label for the graph -->
     <div class="section">
         <h2>Target Output</h2>
         <input type="text" id="targetOutput" value="1,0">
         <span style="color:#888">(comma separated)</span>
     </div>
+
+    <!-- Section: Training controls -->
     <div class="section">
         <h2>Training</h2>
         <label>Iterations: <input type="number" id="trainIters" value="100" min="1"></label>
         <button onclick="runGNNTrain()">Train & Predict</button>
     </div>
+
+    <!-- Where predictions & training results appear -->
     <div class="output" id="output"></div>
 
 <script>
-class Edge { constructor(source, target) { this.Source = source; this.Target = target; } }
+// ========== Core Data Structures ==========
+
+/** Represents a connection (edge) between two nodes in the graph. */
+class Edge {
+    constructor(source, target) { this.Source = source; this.Target = target; }
+}
+
+/** Stores the whole graph: node features & connections. */
 class Graph {
     constructor(numNodes) {
-        this.NumNodes = numNodes;
-        this.NodeFeatures = Array(numNodes).fill(null).map(() => []);
-        this.Edges = [];
-        this.AdjacencyList = Array(numNodes).fill(null).map(() => []);
+        this.NumNodes = numNodes; // how many nodes in the graph
+        this.NodeFeatures = Array(numNodes).fill(null).map(() => []); // node-to-feature array
+        this.Edges = []; // list of Edge objects connecting nodes
+        this.AdjacencyList = Array(numNodes).fill(null).map(() => []); // node adjacency for fast lookup
     }
+    /** After assigning edges, build up which nodes are neighbors of which. */
     buildAdjacencyList() {
         for (let i = 0; i < this.NumNodes; i++) this.AdjacencyList[i] = [];
-        for (let edge of this.Edges) this.AdjacencyList[edge.Source].push(edge.Target);
+        for (let edge of this.Edges)
+            this.AdjacencyList[edge.Source].push(edge.Target);
     }
 }
+
+/** Represents a single "neuron" with weights, output value, bias, and error signal. */
 class Neuron {
     constructor(numInputs) {
-        this.Weights = Array(numInputs).fill(0).map(() => (Math.random()-0.5)*0.1);
-        this.Bias = 0.0; this.Output = 0.0; this.Error = 0.0;
+        this.Weights = Array(numInputs).fill(0).map(() => (Math.random()-0.5)*0.1); // random weights
+        this.Bias = 0.0;
+        this.Output = 0.0; // neuron value after activation
+        this.Error = 0.0;  // for backpropagation (learning)
     }
 }
+
+/** Represents a fully connected layer.  Contains an array of neurons, each with their own weights. */
 class Layer {
     constructor(numNeurons, numInputs) {
         this.Neurons = Array(numNeurons).fill(null).map(() => new Neuron(numInputs));
     }
 }
+
+// ========== Standard Mathematical Functions ==========
+
+// Sigmoid "squashes" values between 0 and 1; used for output probabilities
 function sigmoid(x){return 1.0/(1.0+Math.exp(-x));}
+// ReLU zeros out negatives (common neural net activation function)
 function relu(x){return x>0?x:0.0;}
+
+// ========== THE ACTUAL GRAPH NEURAL NETWORK (GNN) LOGIC ==========
 
 class GraphNeuralNetwork {
     constructor(featureSize, hiddenSize, outputSize, numMPLayers) {
-        this.LearningRate=0.01; this.MaxIterations=100;
-        this.FeatureSize=featureSize; this.HiddenSize=hiddenSize;
-        this.OutputSize=outputSize; this.NumMessagePassingLayers=numMPLayers;
-        this.MessageLayers=[]; this.UpdateLayers=[];
+        // Store 'hyperparameters'
+        this.LearningRate=0.01; // How fast weights are updated during learning
+        this.MaxIterations=100;
+        this.FeatureSize=featureSize;
+        this.HiddenSize=hiddenSize;
+        this.OutputSize=outputSize;
+        this.NumMessagePassingLayers=numMPLayers;
+        // Layers for building up the GNN
+        this.MessageLayers=[];   // Where node messages are encoded
+        this.UpdateLayers=[];    // Where node states are updated
+        // For each message passing step ("layer"):
         for(let i=0;i<numMPLayers;i++){
+            // First message layer takes (featureSize * 2) inputs (node+neighbor),
+            // after that it is hiddenSize * 2 (embedding+neighbor embedding)
             this.MessageLayers.push(new Layer(hiddenSize,i===0?featureSize*2:hiddenSize*2));
             this.UpdateLayers.push(new Layer(hiddenSize,hiddenSize*2));
         }
+        // Readout (aggregates the final node updates into a "graph feature")
         this.ReadoutLayer=new Layer(hiddenSize,hiddenSize);
+        // Output (turns the graph-wide information into a prediction)
         this.OutputLayer=new Layer(outputSize,hiddenSize);
-        this.NodeEmbeddings=[]; this.NewNodeEmbeddings=[];
+        this.NodeEmbeddings=[];    // After each pass, nodes hold "embeddings" (features-in-progress)
+        this.NewNodeEmbeddings=[]; // Working array for message updates
     }
+
+    /** The main 'thinking' step: apply message passing between nodes for all steps/layers. */
     messagePassing(graph){
         let N=graph.NumNodes;
+        // Initialize node embeddings with original features
         this.NodeEmbeddings=Array(N).fill(null).map((_,i)=>graph.NodeFeatures[i].slice());
-        this.NewNodeEmbeddings=Array(N);
+        this.NewNodeEmbeddings=Array(N);   // To store new features per node after updates
+        // For every pass ("layer") of message passing
         for(let layer=0;layer<this.NumMessagePassingLayers;layer++){
+            // For each node, aggregate messages from neighbors
             for(let node=0;node<N;node++){
                 let AggregatedMessage=Array(this.HiddenSize).fill(0.0);
+                // For each neighbor, build up a message
                 for(let neighbor of graph.AdjacencyList[node]){
+                    // "Concat" node and neighbor embeddings and apply MLP (multi-layer perceptron)
                     let ConcatFeatures=this.NodeEmbeddings[node].concat(this.NodeEmbeddings[neighbor]);
                     let Message=[];
                     for(let i=0;i<this.HiddenSize;i++){
                         let sum=this.MessageLayers[layer].Neurons[i].Bias;
                         for(let j=0;j<ConcatFeatures.length;j++)
                             sum+=ConcatFeatures[j]*this.MessageLayers[layer].Neurons[i].Weights[j];
+                        // Apply activation function
                         Message[i]=relu(sum);
                     }
+                    // Sum up all messages across neighbors
                     for(let i=0;i<this.HiddenSize;i++)
                         AggregatedMessage[i]+=Message[i];
                 }
+                // Normalize by number of neighbors (take mean)
                 if(graph.AdjacencyList[node].length>0){
                     for(let i=0;i<this.HiddenSize;i++)
                         AggregatedMessage[i]/=graph.AdjacencyList[node].length;
                 }
+                // Now update this node by mixing its old embedding and received message
                 let UpdateInput=this.NodeEmbeddings[node].concat(AggregatedMessage);
                 this.NewNodeEmbeddings[node]=Array(this.HiddenSize).fill(0.0);
                 for(let i=0;i<this.HiddenSize;i++){
@@ -123,18 +190,23 @@ class GraphNeuralNetwork {
                     this.NewNodeEmbeddings[node][i]=relu(sum);
                 }
             }
+            // Final step for this layer: move updates in
             for(let node=0;node<N;node++)
                 this.NodeEmbeddings[node]=this.NewNodeEmbeddings[node].slice();
         }
     }
+    // After message passing, summarize all node embeddings into a single "graph embedding"
     readout(graph){
         let N=graph.NumNodes;
         let GraphEmbedding=Array(this.HiddenSize).fill(0.0);
+        // Add up each hidden embedding for all nodes
         for(let i=0;i<N;i++)
             for(let j=0;j<this.HiddenSize;j++)
                 GraphEmbedding[j]+=this.NodeEmbeddings[i][j];
+        // Then average over the number of nodes (mean pooling)
         for(let i=0;i<this.HiddenSize;i++)
             GraphEmbedding[i]/=N;
+        // Pass through readout layer MLP (hidden to hidden)
         for(let i=0;i<this.HiddenSize;i++){
             let sum=this.ReadoutLayer.Neurons[i].Bias;
             for(let j=0;j<this.HiddenSize;j++)
@@ -142,6 +214,7 @@ class GraphNeuralNetwork {
             this.ReadoutLayer.Neurons[i].Output=relu(sum);
         }
     }
+    // Runs the model forward: message passing, then readout, then converts to predicted output
     predict(graph){
         graph.buildAdjacencyList();
         this.messagePassing(graph);
@@ -156,11 +229,13 @@ class GraphNeuralNetwork {
         }
         return result;
     }
+    // Calculates error in the output and computes gradient/backprop for output->readout only
     backPropagateGraph(graph,target){
         for(let i=0;i<this.OutputSize;i++){
             let o=this.OutputLayer.Neurons[i].Output;
-            this.OutputLayer.Neurons[i].Error=o*(1-o)*(target[i]-o);
+            this.OutputLayer.Neurons[i].Error=o*(1-o)*(target[i]-o); // sigmoid derivative
         }
+        // propagate error back to readout layer (approximate, not full GNN! For demo only!)
         for(let i=0;i<this.HiddenSize;i++){
             let sum=0.0;
             for(let j=0;j<this.OutputSize;j++)
@@ -168,6 +243,7 @@ class GraphNeuralNetwork {
             this.ReadoutLayer.Neurons[i].Error=this.ReadoutLayer.Neurons[i].Output>0?sum*1.0:0.0;
         }
     }
+    // Updates only the last-layer weights (not true full training, but illustrative for learning purposes)
     updateWeights(){
         for(let i=0;i<this.OutputSize;i++){
             for(let j=0;j<this.HiddenSize;j++)
@@ -177,6 +253,7 @@ class GraphNeuralNetwork {
         for(let i=0;i<this.HiddenSize;i++)
             this.ReadoutLayer.Neurons[i].Bias+=this.LearningRate*this.ReadoutLayer.Neurons[i].Error;
     }
+    // The full training step: forward, backward, update
     train(graph,target){
         this.predict(graph);
         this.backPropagateGraph(graph,target);
@@ -184,18 +261,19 @@ class GraphNeuralNetwork {
     }
 }
 
-// Build node feature input boxes
+// ========== UI: Build the node feature input grid ==========
+
 function buildGraphInputs() {
     let numNodes=parseInt(document.getElementById("numNodes").value)||5;
     let featureSize=parseInt(document.getElementById("featureSize").value)||3;
     let nodeInputsDiv=document.getElementById("nodeInputs");
-    nodeInputsDiv.innerHTML='';
+    nodeInputsDiv.innerHTML=''; // clear first
     for(let i=0;i<numNodes;i++){
         let label=document.createElement('label');
         label.innerText='Node '+i+': ';
         for(let f=0;f<featureSize;f++){
             let inp=document.createElement('input');
-            inp.type='text'; inp.value=(Math.random()).toFixed(2);
+            inp.type='text'; inp.value=(Math.random()).toFixed(2); // Start with a random value for demo
             inp.className='nodevals'; inp.id=`nfeat_${i}_${f}`;
             label.appendChild(inp);
             if(f<featureSize-1) label.appendChild(document.createTextNode(', '));
@@ -205,9 +283,12 @@ function buildGraphInputs() {
     }
 }
 
-buildGraphInputs(); // Init UI on load
+buildGraphInputs(); // Build input fields as soon as page loads
+
+// ========== UI & Training Orchestration ==========
 
 function runGNNTrain() {
+    // Get configuration
     let numNodes=parseInt(document.getElementById("numNodes").value)||5;
     let featureSize=parseInt(document.getElementById("featureSize").value)||3;
     let hiddenSize=parseInt(document.getElementById("hiddenSize").value)||16;
@@ -215,7 +296,7 @@ function runGNNTrain() {
     let numLayers=parseInt(document.getElementById("numLayers").value)||2;
     let trainIters=parseInt(document.getElementById("trainIters").value)||100;
 
-    // Collect node features from input boxes
+    // Gather node feature values from input boxes
     let nodeFeatures=[];
     for(let i=0;i<numNodes;i++){
         let feats=[];
@@ -225,18 +306,18 @@ function runGNNTrain() {
         }
         nodeFeatures.push(feats);
     }
-    // Parse edges from textarea
+    // Read out edge list from textarea (as lines)
     let edgeLines=document.getElementById("edgeList").value.split('\n');
     let edges=[];
     for(let line of edgeLines){
         let vals=line.trim().split(',');
-        if(vals.length!==2) continue;
+        if(vals.length!==2) continue; // skip if not proper (source, target)
         let s=parseInt(vals[0]), t=parseInt(vals[1]);
         if(isNaN(s)||isNaN(t)) continue;
         if(s<numNodes && t<numNodes)
             edges.push(new Edge(s,t));
     }
-    // Parse target output
+    // Parse out the target output
     let targetVals=document.getElementById("targetOutput").value.split(',');
     let target=[];
     for(let v of targetVals)
@@ -246,20 +327,21 @@ function runGNNTrain() {
         return;
     }
 
-    // Build graph
+    // Build the graph object
     let graph=new Graph(numNodes);
     graph.NodeFeatures=nodeFeatures; graph.Edges=edges;
 
-    // Build GNN
+    // Create the GNN core object
     let gnn=new GraphNeuralNetwork(featureSize,hiddenSize,outputSize,numLayers);
 
-    // Train
+    // Train the GNN: Run several iterations to adjust weights
     for(let i=0;i<trainIters;i++)
         gnn.train(graph,target);
 
-    // Predict
+    // After training, get prediction for this graph
     let prediction=gnn.predict(graph);
 
+    // Show results in output div
     document.getElementById("output").innerHTML=
         "<b>Prediction:</b> ["+prediction.map(x=>x.toFixed(4)).join(", ")+"]<br>"+
         "<b>Trained for "+trainIters+" iterations.</b>";
