@@ -119,4 +119,4 @@ After opening `index.html` in your browser:
 ## Vercel Link
 
 You can try the latest version online without any install:
-https://vercel.com/msquigs-projects/javascript-gnn-tczb
+https://vercel.com/msquigs-projects/javascript-gnn
