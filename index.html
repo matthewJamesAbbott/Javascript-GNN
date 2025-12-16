@@ -1,351 +1,1348 @@
 <!--
-  This HTML file allows you to configure, train, and experiment with a simple Graph Neural Network (GNN) directly in your browser.
-  The page lets you:
-    - Set how your graph and GNN should look,
-    - Enter features and edges for your graph,
-    - Train a GNN,
-    - See predictions and results.
-  All the main logic (the neural network math) is done in JavaScript at the bottom!
+  Graph Neural Network (GNN)
+  
+  Features:
+    - True full backpropagation through all GNN layers
+    - Support for directed/undirected graphs
+    - Self-loop aggregation option
+    - Edge deduplication and validation
+    - Live training metrics and loss visualization
+    - Interactive graph visualization (vanilla JS Canvas)
+    - Configurable hyperparameters
+    - Model persistence (save/load weights)
+    - Input validation with clear feedback
+    - Resource usage limits
 -->
 
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Graph Neural Network</title>
+    <title>GNN</title>
     <style>
-        body { font-family: Arial,sans-serif; margin:2rem; }
-        h1, h2 { color: #184878; }
-        .output { background:#f5f5f5; border-radius:7px; padding:1rem; margin:1rem 0;}
-        .section { margin-bottom:2rem; border-bottom:1px solid #ccc; padding-bottom:1rem; }
-        input[type="number"], input[type="text"] { width:5em; }
-        input.nodevals { width:7em; }
-        textarea { width:23em; height:5em; }
+        * { box-sizing: border-box; }
+        body { 
+            font-family: 'Segoe UI', Arial, sans-serif; 
+            margin: 0; padding: 1.5rem;
+            background: #f8fafc;
+            color: #1e293b;
+        }
+        h1 { color: #0f172a; margin-bottom: 0.5rem; }
+        h2 { color: #334155; font-size: 1.1rem; margin: 0 0 0.75rem 0; }
+        .container { max-width: 1400px; margin: 0 auto; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+        .panel { 
+            background: white; 
+            border-radius: 12px; 
+            padding: 1.25rem; 
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .section { margin-bottom: 1.25rem; }
+        .section:last-child { margin-bottom: 0; }
+        
+        label { display: inline-block; margin: 0.25rem 0.5rem 0.25rem 0; font-size: 0.9rem; }
+        input[type="number"], input[type="text"], select { 
+            padding: 0.4rem 0.5rem; 
+            border: 1px solid #cbd5e1; 
+            border-radius: 6px;
+            font-size: 0.9rem;
+        }
+        input[type="number"] { width: 4.5rem; }
+        input[type="text"].nodevals { width: 5rem; }
+        input.error { border-color: #ef4444; background: #fef2f2; }
+        textarea { 
+            width: 100%; height: 6rem; 
+            padding: 0.5rem; 
+            border: 1px solid #cbd5e1; 
+            border-radius: 6px;
+            font-family: monospace;
+            font-size: 0.85rem;
+            resize: vertical;
+        }
+        textarea.error { border-color: #ef4444; background: #fef2f2; }
+        
+        input[type="checkbox"] { 
+            width: 1rem; height: 1rem; 
+            vertical-align: middle; 
+            margin-right: 0.25rem;
+        }
+        
+        button { 
+            padding: 0.5rem 1rem; 
+            background: #3b82f6; 
+            color: white; 
+            border: none; 
+            border-radius: 6px; 
+            cursor: pointer;
+            font-size: 0.9rem;
+            margin: 0.25rem 0.25rem 0.25rem 0;
+            transition: background 0.2s;
+        }
+        button:hover { background: #2563eb; }
+        button:disabled { background: #94a3b8; cursor: not-allowed; }
+        button.secondary { background: #64748b; }
+        button.secondary:hover { background: #475569; }
+        button.danger { background: #ef4444; }
+        button.danger:hover { background: #dc2626; }
+        
+        .error-msg { 
+            color: #dc2626; 
+            background: #fef2f2; 
+            padding: 0.5rem 0.75rem; 
+            border-radius: 6px; 
+            margin: 0.5rem 0;
+            font-size: 0.85rem;
+        }
+        .success-msg {
+            color: #16a34a;
+            background: #f0fdf4;
+            padding: 0.5rem 0.75rem;
+            border-radius: 6px;
+            margin: 0.5rem 0;
+            font-size: 0.85rem;
+        }
+        
+        .metrics-panel {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 0.75rem;
+            margin-bottom: 1rem;
+        }
+        .metric {
+            background: #f1f5f9;
+            padding: 0.75rem;
+            border-radius: 8px;
+            text-align: center;
+        }
+        .metric-label { font-size: 0.75rem; color: #64748b; text-transform: uppercase; }
+        .metric-value { font-size: 1.25rem; font-weight: 600; color: #0f172a; }
+        
+        #lossChart { 
+            width: 100%; 
+            height: 200px; 
+            background: #f8fafc; 
+            border-radius: 8px;
+            border: 1px solid #e2e8f0;
+        }
+        
+        #graphViz { 
+            width: 100%; 
+            height: 350px; 
+            background: #f8fafc; 
+            border-radius: 8px;
+            border: 1px solid #e2e8f0;
+            position: relative;
+        }
+        #graphCanvas {
+            width: 100%;
+            height: 100%;
+        }
+        
+        .output-panel {
+            background: #f1f5f9;
+            padding: 1rem;
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 0.85rem;
+            max-height: 150px;
+            overflow-y: auto;
+        }
+        
+        .slider-container { display: flex; align-items: center; gap: 0.5rem; margin: 0.25rem 0; }
+        .slider-container input[type="range"] { flex: 1; max-width: 150px; }
+        .slider-value { min-width: 3rem; font-size: 0.85rem; color: #64748b; }
+        
+        .node-inputs-grid { 
+            display: grid; 
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); 
+            gap: 0.5rem;
+            max-height: 200px;
+            overflow-y: auto;
+            padding-right: 0.5rem;
+        }
+        .node-input-row { 
+            display: flex; 
+            align-items: center; 
+            gap: 0.25rem;
+            background: #f8fafc;
+            padding: 0.4rem;
+            border-radius: 6px;
+        }
+        .node-input-label { min-width: 3rem; font-size: 0.8rem; color: #64748b; }
+        
+        .progress-bar {
+            width: 100%;
+            height: 6px;
+            background: #e2e8f0;
+            border-radius: 3px;
+            overflow: hidden;
+            margin: 0.5rem 0;
+        }
+        .progress-fill {
+            height: 100%;
+            background: #3b82f6;
+            transition: width 0.1s;
+        }
+        
+        .legend { font-size: 0.75rem; color: #64748b; margin-top: 0.5rem; }
+        
+        @media (max-width: 900px) {
+            .grid { grid-template-columns: 1fr; }
+        }
     </style>
 </head>
 <body>
-    <h1>Graph Neural Network (GNN)</h1>
-
-    <!-- Section: Network Configuration -->
-    <div class="section">
-        <h2>Network Configuration</h2>
-        <label># Nodes: <input type="number" id="numNodes" value="5" min="2"></label>
-        <label>Features per Node: <input type="number" id="featureSize" value="3" min="1"></label>
-        <label>Hidden Size: <input type="number" id="hiddenSize" value="16" min="1"></label>
-        <label>Output Size: <input type="number" id="outputSize" value="2" min="1"></label>
-        <label>Message Passing Layers: <input type="number" id="numLayers" value="2" min="1"></label>
-        <button onclick="buildGraphInputs()">Apply Config</button>
-    </div>
-
-    <!-- Section: Enter or See node features -->
-    <div class="section">
-        <h2>Node Features</h2>
-        <div id="nodeInputs"></div>
-    </div>
-
-    <!-- Section: Edges (as a text area, "source,target" per line) -->
-    <div class="section">
-        <h2>Edges (source,target, each on new line)</h2>
-        <textarea id="edgeList">0,1
+    <div class="container">
+        <h1>Graph Neural Network</h1>
+        <p style="color:#64748b; margin-bottom:1.5rem;">Full backpropagation through all layers with live visualization</p>
+        
+        <div class="grid">
+            <!-- Left Column: Configuration & Inputs -->
+            <div>
+                <!-- Network Configuration -->
+                <div class="panel section">
+                    <h2>Network Configuration</h2>
+                    <div style="display:flex; flex-wrap:wrap; gap:0.5rem 1rem;">
+                        <label># Nodes: <input type="number" id="numNodes" value="5" min="2" max="100"></label>
+                        <label>Features/Node: <input type="number" id="featureSize" value="3" min="1" max="64"></label>
+                        <label>Hidden Size: <input type="number" id="hiddenSize" value="16" min="4" max="128"></label>
+                        <label>Output Size: <input type="number" id="outputSize" value="2" min="1" max="32"></label>
+                        <label>MP Layers: <input type="number" id="numLayers" value="2" min="1" max="8"></label>
+                    </div>
+                    <div style="margin-top:0.75rem;">
+                        <label><input type="checkbox" id="undirected" checked> Undirected Graph</label>
+                        <label><input type="checkbox" id="selfLoops"> Include Self-Loops</label>
+                        <label><input type="checkbox" id="dedupEdges" checked> Deduplicate Edges</label>
+                    </div>
+                    <div style="margin-top:0.75rem;">
+                        <button onclick="applyConfig()">Apply Config</button>
+                        <button class="secondary" onclick="randomizeFeatures()">Randomize Features</button>
+                    </div>
+                </div>
+                
+                <!-- Hyperparameters -->
+                <div class="panel section">
+                    <h2>Hyperparameters</h2>
+                    <div class="slider-container">
+                        <label>Learning Rate:</label>
+                        <input type="range" id="learningRate" min="-4" max="-1" step="0.1" value="-2" oninput="updateSliderDisplay()">
+                        <span class="slider-value" id="lrDisplay">0.01</span>
+                    </div>
+                    <div class="slider-container">
+                        <label>Iterations:</label>
+                        <input type="range" id="trainIters" min="10" max="1000" step="10" value="200" oninput="updateSliderDisplay()">
+                        <span class="slider-value" id="iterDisplay">200</span>
+                    </div>
+                    <div style="margin-top:0.5rem;">
+                        <label>Activation: 
+                            <select id="activation">
+                                <option value="relu">ReLU</option>
+                                <option value="leaky_relu">Leaky ReLU</option>
+                                <option value="tanh">Tanh</option>
+                                <option value="sigmoid">Sigmoid</option>
+                            </select>
+                        </label>
+                        <label>Loss: 
+                            <select id="lossFunction">
+                                <option value="mse">MSE</option>
+                                <option value="bce">Binary Cross-Entropy</option>
+                            </select>
+                        </label>
+                    </div>
+                </div>
+                
+                <!-- Node Features -->
+                <div class="panel section">
+                    <h2>Node Features</h2>
+                    <div id="nodeInputs" class="node-inputs-grid"></div>
+                    <div id="nodeInputError"></div>
+                </div>
+                
+                <!-- Edges -->
+                <div class="panel section">
+                    <h2>Edges (source,target per line)</h2>
+                    <textarea id="edgeList">0,1
 1,2
 2,3
 3,4
 4,0
 1,3</textarea>
+                    <div id="edgeError"></div>
+                    <div class="legend" id="edgeStats"></div>
+                </div>
+                
+                <!-- Target Output -->
+                <div class="panel section">
+                    <h2>Target Output</h2>
+                    <input type="text" id="targetOutput" value="1,0" style="width:100%;">
+                    <div id="targetError"></div>
+                </div>
+            </div>
+            
+            <!-- Right Column: Visualization & Results -->
+            <div>
+                <!-- Training Controls -->
+                <div class="panel section">
+                    <h2>Training</h2>
+                    <button id="trainBtn" onclick="runGNNTrain()">Train & Predict</button>
+                    <button id="stopBtn" class="danger" onclick="stopTraining()" disabled>Stop</button>
+                    <button class="secondary" onclick="resetModel()">Reset Model</button>
+                    <button class="secondary" onclick="saveModel()">Save</button>
+                    <button class="secondary" onclick="loadModel()">Load</button>
+                    <div class="progress-bar" id="progressContainer" style="display:none;">
+                        <div class="progress-fill" id="progressFill"></div>
+                    </div>
+                </div>
+                
+                <!-- Metrics -->
+                <div class="panel section">
+                    <h2>Training Metrics</h2>
+                    <div class="metrics-panel">
+                        <div class="metric">
+                            <div class="metric-label">Loss</div>
+                            <div class="metric-value" id="metricLoss">-</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-label">Iteration</div>
+                            <div class="metric-value" id="metricIter">-</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-label">Delta Loss</div>
+                            <div class="metric-value" id="metricDelta">-</div>
+                        </div>
+                    </div>
+                    <canvas id="lossChart"></canvas>
+                </div>
+                
+                <!-- Graph Visualization -->
+                <div class="panel section">
+                    <h2>Graph Visualization</h2>
+                    <div id="graphViz">
+                        <canvas id="graphCanvas"></canvas>
+                    </div>
+                    <div class="legend">Node colors represent embedding magnitude. Click nodes to see features.</div>
+                </div>
+                
+                <!-- Output -->
+                <div class="panel section">
+                    <h2>Output</h2>
+                    <div class="output-panel" id="output">Configure and train the network to see predictions.</div>
+                </div>
+            </div>
+        </div>
     </div>
-
-    <!-- Section: Desired output/label for the graph -->
-    <div class="section">
-        <h2>Target Output</h2>
-        <input type="text" id="targetOutput" value="1,0">
-        <span style="color:#888">(comma separated)</span>
-    </div>
-
-    <!-- Section: Training controls -->
-    <div class="section">
-        <h2>Training</h2>
-        <label>Iterations: <input type="number" id="trainIters" value="100" min="1"></label>
-        <button onclick="runGNNTrain()">Train & Predict</button>
-    </div>
-
-    <!-- Where predictions & training results appear -->
-    <div class="output" id="output"></div>
 
 <script>
-// ========== Core Data Structures ==========
+// ==================== CONFIGURATION ====================
 
-/** Represents a connection (edge) between two nodes in the graph. */
+const CONFIG = {
+    MAX_NODES: 100,
+    MAX_EDGES: 1000,
+    MAX_ITERATIONS: 2000,
+    ANIMATION_BATCH: 10
+};
+
+let isTraining = false;
+let stopRequested = false;
+let currentGNN = null;
+let lossHistory = [];
+let graphState = null;
+
+// ==================== CORE DATA STRUCTURES ====================
+
 class Edge {
-    constructor(source, target) { this.Source = source; this.Target = target; }
+    constructor(source, target) {
+        this.source = source;
+        this.target = target;
+    }
+    equals(other) {
+        return this.source === other.source && this.target === other.target;
+    }
+    toKey() {
+        return `${this.source}-${this.target}`;
+    }
 }
 
-/** Stores the whole graph: node features & connections. */
 class Graph {
     constructor(numNodes) {
-        this.NumNodes = numNodes; // how many nodes in the graph
-        this.NodeFeatures = Array(numNodes).fill(null).map(() => []); // node-to-feature array
-        this.Edges = []; // list of Edge objects connecting nodes
-        this.AdjacencyList = Array(numNodes).fill(null).map(() => []); // node adjacency for fast lookup
+        this.numNodes = numNodes;
+        this.nodeFeatures = Array(numNodes).fill(null).map(() => []);
+        this.edges = [];
+        this.adjacencyList = Array(numNodes).fill(null).map(() => []);
     }
-    /** After assigning edges, build up which nodes are neighbors of which. */
-    buildAdjacencyList() {
-        for (let i = 0; i < this.NumNodes; i++) this.AdjacencyList[i] = [];
-        for (let edge of this.Edges)
-            this.AdjacencyList[edge.Source].push(edge.Target);
+    
+    buildAdjacencyList(undirected = false, selfLoops = false) {
+        this.adjacencyList = Array(this.numNodes).fill(null).map(() => []);
+        
+        for (const edge of this.edges) {
+            this.adjacencyList[edge.source].push(edge.target);
+            if (undirected && edge.source !== edge.target) {
+                this.adjacencyList[edge.target].push(edge.source);
+            }
+        }
+        
+        if (selfLoops) {
+            for (let i = 0; i < this.numNodes; i++) {
+                if (!this.adjacencyList[i].includes(i)) {
+                    this.adjacencyList[i].push(i);
+                }
+            }
+        }
+    }
+    
+    static deduplicateEdges(edges) {
+        const seen = new Set();
+        return edges.filter(e => {
+            const key = e.toKey();
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
+    }
+    
+    getNeighborCount(node) {
+        return this.adjacencyList[node]?.length || 0;
     }
 }
 
-/** Represents a single "neuron" with weights, output value, bias, and error signal. */
-class Neuron {
-    constructor(numInputs) {
-        this.Weights = Array(numInputs).fill(0).map(() => (Math.random()-0.5)*0.1); // random weights
-        this.Bias = 0.0;
-        this.Output = 0.0; // neuron value after activation
-        this.Error = 0.0;  // for backpropagation (learning)
+// ==================== ACTIVATION FUNCTIONS ====================
+
+const activations = {
+    relu: {
+        fn: x => Math.max(0, x),
+        derivative: x => x > 0 ? 1 : 0
+    },
+    leaky_relu: {
+        fn: x => x > 0 ? x : 0.01 * x,
+        derivative: x => x > 0 ? 1 : 0.01
+    },
+    tanh: {
+        fn: x => Math.tanh(x),
+        derivative: x => 1 - Math.tanh(x) ** 2
+    },
+    sigmoid: {
+        fn: x => 1 / (1 + Math.exp(-Math.max(-500, Math.min(500, x)))),
+        derivative: x => {
+            const s = 1 / (1 + Math.exp(-Math.max(-500, Math.min(500, x))));
+            return s * (1 - s);
+        }
+    }
+};
+
+// ==================== LOSS FUNCTIONS ====================
+
+const lossFunctions = {
+    mse: {
+        fn: (pred, target) => {
+            let sum = 0;
+            for (let i = 0; i < pred.length; i++) {
+                sum += (pred[i] - target[i]) ** 2;
+            }
+            return sum / pred.length;
+        },
+        derivative: (pred, target) => {
+            return pred.map((p, i) => 2 * (p - target[i]) / pred.length);
+        }
+    },
+    bce: {
+        fn: (pred, target) => {
+            let sum = 0;
+            for (let i = 0; i < pred.length; i++) {
+                const p = Math.max(1e-7, Math.min(1 - 1e-7, pred[i]));
+                sum -= target[i] * Math.log(p) + (1 - target[i]) * Math.log(1 - p);
+            }
+            return sum / pred.length;
+        },
+        derivative: (pred, target) => {
+            return pred.map((p, i) => {
+                const pClamp = Math.max(1e-7, Math.min(1 - 1e-7, p));
+                return (-target[i] / pClamp + (1 - target[i]) / (1 - pClamp)) / pred.length;
+            });
+        }
+    }
+};
+
+// ==================== NEURAL NETWORK LAYERS ====================
+
+class DenseLayer {
+    constructor(numOutputs, numInputs) {
+        this.numInputs = numInputs;
+        this.numOutputs = numOutputs;
+        
+        const scale = Math.sqrt(2.0 / (numInputs + numOutputs));
+        this.weights = Array(numOutputs).fill(null).map(() =>
+            Array(numInputs).fill(0).map(() => (Math.random() - 0.5) * 2 * scale)
+        );
+        this.biases = Array(numOutputs).fill(0);
+        
+        this.lastInput = null;
+        this.lastPreActivation = null;
+        this.lastOutput = null;
+        this.weightGrads = null;
+        this.biasGrads = null;
+    }
+    
+    forward(input, activation) {
+        this.lastInput = input.slice();
+        this.lastPreActivation = [];
+        this.lastOutput = [];
+        
+        for (let i = 0; i < this.numOutputs; i++) {
+            let sum = this.biases[i];
+            for (let j = 0; j < this.numInputs; j++) {
+                sum += this.weights[i][j] * input[j];
+            }
+            this.lastPreActivation[i] = sum;
+            this.lastOutput[i] = activation.fn(sum);
+        }
+        
+        return this.lastOutput;
+    }
+    
+    backward(upstreamGrad, activation, learningRate) {
+        const preActGrad = [];
+        for (let i = 0; i < this.numOutputs; i++) {
+            preActGrad[i] = upstreamGrad[i] * activation.derivative(this.lastPreActivation[i]);
+        }
+        
+        this.weightGrads = Array(this.numOutputs).fill(null).map(() => Array(this.numInputs).fill(0));
+        this.biasGrads = Array(this.numOutputs).fill(0);
+        
+        for (let i = 0; i < this.numOutputs; i++) {
+            this.biasGrads[i] = preActGrad[i];
+            for (let j = 0; j < this.numInputs; j++) {
+                this.weightGrads[i][j] = preActGrad[i] * this.lastInput[j];
+            }
+        }
+        
+        const inputGrad = Array(this.numInputs).fill(0);
+        for (let j = 0; j < this.numInputs; j++) {
+            for (let i = 0; i < this.numOutputs; i++) {
+                inputGrad[j] += this.weights[i][j] * preActGrad[i];
+            }
+        }
+        
+        for (let i = 0; i < this.numOutputs; i++) {
+            this.biases[i] -= learningRate * this.biasGrads[i];
+            for (let j = 0; j < this.numInputs; j++) {
+                this.weights[i][j] -= learningRate * this.weightGrads[i][j];
+            }
+        }
+        
+        return inputGrad;
+    }
+    
+    getWeights() {
+        return { weights: this.weights.map(w => w.slice()), biases: this.biases.slice() };
+    }
+    
+    setWeights(data) {
+        this.weights = data.weights.map(w => w.slice());
+        this.biases = data.biases.slice();
     }
 }
 
-/** Represents a fully connected layer.  Contains an array of neurons, each with their own weights. */
-class Layer {
-    constructor(numNeurons, numInputs) {
-        this.Neurons = Array(numNeurons).fill(null).map(() => new Neuron(numInputs));
-    }
-}
-
-// ========== Standard Mathematical Functions ==========
-
-// Sigmoid "squashes" values between 0 and 1; used for output probabilities
-function sigmoid(x){return 1.0/(1.0+Math.exp(-x));}
-// ReLU zeros out negatives (common neural net activation function)
-function relu(x){return x>0?x:0.0;}
-
-// ========== THE ACTUAL GRAPH NEURAL NETWORK (GNN) LOGIC ==========
+// ==================== GRAPH NEURAL NETWORK ====================
 
 class GraphNeuralNetwork {
     constructor(featureSize, hiddenSize, outputSize, numMPLayers) {
-        // Store 'hyperparameters'
-        this.LearningRate=0.01; // How fast weights are updated during learning
-        this.MaxIterations=100;
-        this.FeatureSize=featureSize;
-        this.HiddenSize=hiddenSize;
-        this.OutputSize=outputSize;
-        this.NumMessagePassingLayers=numMPLayers;
-        // Layers for building up the GNN
-        this.MessageLayers=[];   // Where node messages are encoded
-        this.UpdateLayers=[];    // Where node states are updated
-        // For each message passing step ("layer"):
-        for(let i=0;i<numMPLayers;i++){
-            // First message layer takes (featureSize * 2) inputs (node+neighbor),
-            // after that it is hiddenSize * 2 (embedding+neighbor embedding)
-            this.MessageLayers.push(new Layer(hiddenSize,i===0?featureSize*2:hiddenSize*2));
-            this.UpdateLayers.push(new Layer(hiddenSize,hiddenSize*2));
+        this.featureSize = featureSize;
+        this.hiddenSize = hiddenSize;
+        this.outputSize = outputSize;
+        this.numMPLayers = numMPLayers;
+        this.learningRate = 0.01;
+        this.activationType = 'relu';
+        this.lossFunctionType = 'mse';
+        
+        this.messageLayers = [];
+        this.updateLayers = [];
+        
+        for (let i = 0; i < numMPLayers; i++) {
+            const inputSize = i === 0 ? featureSize * 2 : hiddenSize * 2;
+            this.messageLayers.push(new DenseLayer(hiddenSize, inputSize));
+            this.updateLayers.push(new DenseLayer(hiddenSize, hiddenSize * 2));
         }
-        // Readout (aggregates the final node updates into a "graph feature")
-        this.ReadoutLayer=new Layer(hiddenSize,hiddenSize);
-        // Output (turns the graph-wide information into a prediction)
-        this.OutputLayer=new Layer(outputSize,hiddenSize);
-        this.NodeEmbeddings=[];    // After each pass, nodes hold "embeddings" (features-in-progress)
-        this.NewNodeEmbeddings=[]; // Working array for message updates
+        
+        this.readoutLayer = new DenseLayer(hiddenSize, hiddenSize);
+        this.outputLayer = new DenseLayer(outputSize, hiddenSize);
+        
+        this.nodeEmbeddings = [];
+        this.embeddingHistory = [];
+        this.messageHistory = [];
+        this.aggregatedMessages = [];
+        this.graphEmbedding = null;
+        this.readoutOutput = null;
     }
-
-    /** The main 'thinking' step: apply message passing between nodes for all steps/layers. */
-    messagePassing(graph){
-        let N=graph.NumNodes;
-        // Initialize node embeddings with original features
-        this.NodeEmbeddings=Array(N).fill(null).map((_,i)=>graph.NodeFeatures[i].slice());
-        this.NewNodeEmbeddings=Array(N);   // To store new features per node after updates
-        // For every pass ("layer") of message passing
-        for(let layer=0;layer<this.NumMessagePassingLayers;layer++){
-            // For each node, aggregate messages from neighbors
-            for(let node=0;node<N;node++){
-                let AggregatedMessage=Array(this.HiddenSize).fill(0.0);
-                // For each neighbor, build up a message
-                for(let neighbor of graph.AdjacencyList[node]){
-                    // "Concat" node and neighbor embeddings and apply MLP (multi-layer perceptron)
-                    let ConcatFeatures=this.NodeEmbeddings[node].concat(this.NodeEmbeddings[neighbor]);
-                    let Message=[];
-                    for(let i=0;i<this.HiddenSize;i++){
-                        let sum=this.MessageLayers[layer].Neurons[i].Bias;
-                        for(let j=0;j<ConcatFeatures.length;j++)
-                            sum+=ConcatFeatures[j]*this.MessageLayers[layer].Neurons[i].Weights[j];
-                        // Apply activation function
-                        Message[i]=relu(sum);
+    
+    get activation() {
+        return activations[this.activationType];
+    }
+    
+    get lossFunction() {
+        return lossFunctions[this.lossFunctionType];
+    }
+    
+    forward(graph) {
+        const N = graph.numNodes;
+        const activation = this.activation;
+        
+        this.embeddingHistory = [];
+        this.messageHistory = [];
+        this.aggregatedMessages = [];
+        
+        let currentEmbeddings = graph.nodeFeatures.map(f => f.slice());
+        this.embeddingHistory.push(currentEmbeddings.map(e => e.slice()));
+        
+        for (let layer = 0; layer < this.numMPLayers; layer++) {
+            const newEmbeddings = [];
+            const layerMessages = [];
+            const layerAggregated = [];
+            
+            for (let node = 0; node < N; node++) {
+                const neighbors = graph.adjacencyList[node];
+                const nodeMessages = [];
+                let aggregatedMessage = Array(this.hiddenSize).fill(0);
+                
+                if (neighbors.length > 0) {
+                    for (const neighbor of neighbors) {
+                        const concat = currentEmbeddings[node].concat(currentEmbeddings[neighbor]);
+                        const message = this.messageLayers[layer].forward(concat, activation);
+                        nodeMessages.push({ neighbor, message: message.slice(), concat: concat.slice() });
+                        
+                        for (let i = 0; i < this.hiddenSize; i++) {
+                            aggregatedMessage[i] += message[i];
+                        }
                     }
-                    // Sum up all messages across neighbors
-                    for(let i=0;i<this.HiddenSize;i++)
-                        AggregatedMessage[i]+=Message[i];
+                    
+                    for (let i = 0; i < this.hiddenSize; i++) {
+                        aggregatedMessage[i] /= neighbors.length;
+                    }
                 }
-                // Normalize by number of neighbors (take mean)
-                if(graph.AdjacencyList[node].length>0){
-                    for(let i=0;i<this.HiddenSize;i++)
-                        AggregatedMessage[i]/=graph.AdjacencyList[node].length;
+                
+                layerMessages.push(nodeMessages);
+                layerAggregated.push(aggregatedMessage);
+                
+                let updateInput;
+                if (layer === 0) {
+                    const paddedFeatures = Array(this.hiddenSize).fill(0);
+                    for (let i = 0; i < Math.min(currentEmbeddings[node].length, this.hiddenSize); i++) {
+                        paddedFeatures[i] = currentEmbeddings[node][i];
+                    }
+                    updateInput = paddedFeatures.concat(aggregatedMessage);
+                } else {
+                    updateInput = currentEmbeddings[node].concat(aggregatedMessage);
                 }
-                // Now update this node by mixing its old embedding and received message
-                let UpdateInput=this.NodeEmbeddings[node].concat(AggregatedMessage);
-                this.NewNodeEmbeddings[node]=Array(this.HiddenSize).fill(0.0);
-                for(let i=0;i<this.HiddenSize;i++){
-                    let sum=this.UpdateLayers[layer].Neurons[i].Bias;
-                    for(let j=0;j<UpdateInput.length;j++)
-                        sum+=UpdateInput[j]*this.UpdateLayers[layer].Neurons[i].Weights[j];
-                    this.NewNodeEmbeddings[node][i]=relu(sum);
+                
+                const newEmb = this.updateLayers[layer].forward(updateInput, activation);
+                newEmbeddings.push(newEmb);
+            }
+            
+            this.messageHistory.push(layerMessages);
+            this.aggregatedMessages.push(layerAggregated);
+            currentEmbeddings = newEmbeddings;
+            this.embeddingHistory.push(currentEmbeddings.map(e => e.slice()));
+        }
+        
+        this.nodeEmbeddings = currentEmbeddings;
+        
+        this.graphEmbedding = Array(this.hiddenSize).fill(0);
+        for (let i = 0; i < N; i++) {
+            for (let j = 0; j < this.hiddenSize; j++) {
+                this.graphEmbedding[j] += this.nodeEmbeddings[i][j];
+            }
+        }
+        for (let j = 0; j < this.hiddenSize; j++) {
+            this.graphEmbedding[j] /= N;
+        }
+        
+        this.readoutOutput = this.readoutLayer.forward(this.graphEmbedding, activation);
+        const output = this.outputLayer.forward(this.readoutOutput, activations.sigmoid);
+        
+        return output;
+    }
+    
+    backward(graph, target) {
+        const N = graph.numNodes;
+        const activation = this.activation;
+        const lr = this.learningRate;
+        
+        const prediction = this.outputLayer.lastOutput;
+        const lossGrad = this.lossFunction.derivative(prediction, target);
+        
+        const readoutGrad = this.outputLayer.backward(lossGrad, activations.sigmoid, lr);
+        const graphEmbGrad = this.readoutLayer.backward(readoutGrad, activation, lr);
+        
+        const nodeGrads = Array(N).fill(null).map(() => 
+            graphEmbGrad.map(g => g / N)
+        );
+        
+        for (let layer = this.numMPLayers - 1; layer >= 0; layer--) {
+            const prevEmbeddings = this.embeddingHistory[layer];
+            const newNodeGrads = Array(N).fill(null).map(() => 
+                Array(layer === 0 ? this.featureSize : this.hiddenSize).fill(0)
+            );
+            
+            for (let node = 0; node < N; node++) {
+                let updateInput;
+                if (layer === 0) {
+                    const paddedFeatures = Array(this.hiddenSize).fill(0);
+                    for (let i = 0; i < Math.min(prevEmbeddings[node].length, this.hiddenSize); i++) {
+                        paddedFeatures[i] = prevEmbeddings[node][i];
+                    }
+                    updateInput = paddedFeatures.concat(this.aggregatedMessages[layer][node]);
+                } else {
+                    updateInput = prevEmbeddings[node].concat(this.aggregatedMessages[layer][node]);
+                }
+                
+                this.updateLayers[layer].lastInput = updateInput;
+                const updateInputGrad = this.updateLayers[layer].backward(nodeGrads[node], activation, lr);
+                
+                for (let i = 0; i < Math.min(this.hiddenSize, newNodeGrads[node].length); i++) {
+                    if (layer === 0 && i < this.featureSize) {
+                        newNodeGrads[node][i] += updateInputGrad[i];
+                    } else if (layer > 0) {
+                        newNodeGrads[node][i] += updateInputGrad[i];
+                    }
+                }
+                
+                const numNeighbors = graph.adjacencyList[node].length;
+                if (numNeighbors > 0) {
+                    const msgGrad = Array(this.hiddenSize).fill(0);
+                    for (let i = 0; i < this.hiddenSize; i++) {
+                        msgGrad[i] = updateInputGrad[this.hiddenSize + i] / numNeighbors;
+                    }
+                    
+                    for (const msgInfo of this.messageHistory[layer][node]) {
+                        this.messageLayers[layer].lastInput = msgInfo.concat;
+                        const concatGrad = this.messageLayers[layer].backward(msgGrad, activation, lr);
+                        
+                        const halfLen = concatGrad.length / 2;
+                        for (let i = 0; i < Math.min(halfLen, newNodeGrads[node].length); i++) {
+                            newNodeGrads[node][i] += concatGrad[i];
+                        }
+                        for (let i = 0; i < Math.min(halfLen, newNodeGrads[msgInfo.neighbor].length); i++) {
+                            newNodeGrads[msgInfo.neighbor][i] += concatGrad[halfLen + i];
+                        }
+                    }
                 }
             }
-            // Final step for this layer: move updates in
-            for(let node=0;node<N;node++)
-                this.NodeEmbeddings[node]=this.NewNodeEmbeddings[node].slice();
+            
+            if (layer > 0) {
+                for (let node = 0; node < N; node++) {
+                    nodeGrads[node] = newNodeGrads[node];
+                }
+            }
         }
     }
-    // After message passing, summarize all node embeddings into a single "graph embedding"
-    readout(graph){
-        let N=graph.NumNodes;
-        let GraphEmbedding=Array(this.HiddenSize).fill(0.0);
-        // Add up each hidden embedding for all nodes
-        for(let i=0;i<N;i++)
-            for(let j=0;j<this.HiddenSize;j++)
-                GraphEmbedding[j]+=this.NodeEmbeddings[i][j];
-        // Then average over the number of nodes (mean pooling)
-        for(let i=0;i<this.HiddenSize;i++)
-            GraphEmbedding[i]/=N;
-        // Pass through readout layer MLP (hidden to hidden)
-        for(let i=0;i<this.HiddenSize;i++){
-            let sum=this.ReadoutLayer.Neurons[i].Bias;
-            for(let j=0;j<this.HiddenSize;j++)
-                sum+=GraphEmbedding[j]*this.ReadoutLayer.Neurons[i].Weights[j];
-            this.ReadoutLayer.Neurons[i].Output=relu(sum);
-        }
+    
+    train(graph, target) {
+        const prediction = this.forward(graph);
+        const loss = this.lossFunction.fn(prediction, target);
+        this.backward(graph, target);
+        return { prediction, loss };
     }
-    // Runs the model forward: message passing, then readout, then converts to predicted output
-    predict(graph){
-        graph.buildAdjacencyList();
-        this.messagePassing(graph);
-        this.readout(graph);
-        let result=[];
-        for(let i=0;i<this.OutputSize;i++){
-            let sum=this.OutputLayer.Neurons[i].Bias;
-            for(let j=0;j<this.HiddenSize;j++)
-                sum+=this.ReadoutLayer.Neurons[j].Output*this.OutputLayer.Neurons[i].Weights[j];
-            result[i]=sigmoid(sum);
-            this.OutputLayer.Neurons[i].Output=result[i];
-        }
-        return result;
+    
+    predict(graph) {
+        return this.forward(graph);
     }
-    // Calculates error in the output and computes gradient/backprop for output->readout only
-    backPropagateGraph(graph,target){
-        for(let i=0;i<this.OutputSize;i++){
-            let o=this.OutputLayer.Neurons[i].Output;
-            this.OutputLayer.Neurons[i].Error=o*(1-o)*(target[i]-o); // sigmoid derivative
-        }
-        // propagate error back to readout layer (approximate, not full GNN! For demo only!)
-        for(let i=0;i<this.HiddenSize;i++){
-            let sum=0.0;
-            for(let j=0;j<this.OutputSize;j++)
-                sum+=this.OutputLayer.Neurons[j].Error*this.OutputLayer.Neurons[j].Weights[i];
-            this.ReadoutLayer.Neurons[i].Error=this.ReadoutLayer.Neurons[i].Output>0?sum*1.0:0.0;
-        }
+    
+    getWeights() {
+        return {
+            messageLayers: this.messageLayers.map(l => l.getWeights()),
+            updateLayers: this.updateLayers.map(l => l.getWeights()),
+            readoutLayer: this.readoutLayer.getWeights(),
+            outputLayer: this.outputLayer.getWeights(),
+            config: {
+                featureSize: this.featureSize,
+                hiddenSize: this.hiddenSize,
+                outputSize: this.outputSize,
+                numMPLayers: this.numMPLayers
+            }
+        };
     }
-    // Updates only the last-layer weights (not true full training, but illustrative for learning purposes)
-    updateWeights(){
-        for(let i=0;i<this.OutputSize;i++){
-            for(let j=0;j<this.HiddenSize;j++)
-                this.OutputLayer.Neurons[i].Weights[j]+=this.LearningRate*this.OutputLayer.Neurons[i].Error*this.ReadoutLayer.Neurons[j].Output;
-            this.OutputLayer.Neurons[i].Bias+=this.LearningRate*this.OutputLayer.Neurons[i].Error;
-        }
-        for(let i=0;i<this.HiddenSize;i++)
-            this.ReadoutLayer.Neurons[i].Bias+=this.LearningRate*this.ReadoutLayer.Neurons[i].Error;
-    }
-    // The full training step: forward, backward, update
-    train(graph,target){
-        this.predict(graph);
-        this.backPropagateGraph(graph,target);
-        this.updateWeights();
+    
+    setWeights(data) {
+        data.messageLayers.forEach((w, i) => this.messageLayers[i].setWeights(w));
+        data.updateLayers.forEach((w, i) => this.updateLayers[i].setWeights(w));
+        this.readoutLayer.setWeights(data.readoutLayer);
+        this.outputLayer.setWeights(data.outputLayer);
     }
 }
 
-// ========== UI: Build the node feature input grid ==========
+// ==================== INPUT VALIDATION ====================
 
-function buildGraphInputs() {
-    let numNodes=parseInt(document.getElementById("numNodes").value)||5;
-    let featureSize=parseInt(document.getElementById("featureSize").value)||3;
-    let nodeInputsDiv=document.getElementById("nodeInputs");
-    nodeInputsDiv.innerHTML=''; // clear first
-    for(let i=0;i<numNodes;i++){
-        let label=document.createElement('label');
-        label.innerText='Node '+i+': ';
-        for(let f=0;f<featureSize;f++){
-            let inp=document.createElement('input');
-            inp.type='text'; inp.value=(Math.random()).toFixed(2); // Start with a random value for demo
-            inp.className='nodevals'; inp.id=`nfeat_${i}_${f}`;
-            label.appendChild(inp);
-            if(f<featureSize-1) label.appendChild(document.createTextNode(', '));
-        }
-        nodeInputsDiv.appendChild(label);
-        nodeInputsDiv.appendChild(document.createElement('br'));
+function validateInputs() {
+    const errors = [];
+    clearErrors();
+    
+    const numNodes = parseInt(document.getElementById('numNodes').value);
+    const featureSize = parseInt(document.getElementById('featureSize').value);
+    const outputSize = parseInt(document.getElementById('outputSize').value);
+    
+    if (isNaN(numNodes) || numNodes < 2 || numNodes > CONFIG.MAX_NODES) {
+        errors.push({ field: 'numNodes', msg: `Nodes must be 2-${CONFIG.MAX_NODES}` });
     }
-}
-
-buildGraphInputs(); // Build input fields as soon as page loads
-
-// ========== UI & Training Orchestration ==========
-
-function runGNNTrain() {
-    // Get configuration
-    let numNodes=parseInt(document.getElementById("numNodes").value)||5;
-    let featureSize=parseInt(document.getElementById("featureSize").value)||3;
-    let hiddenSize=parseInt(document.getElementById("hiddenSize").value)||16;
-    let outputSize=parseInt(document.getElementById("outputSize").value)||2;
-    let numLayers=parseInt(document.getElementById("numLayers").value)||2;
-    let trainIters=parseInt(document.getElementById("trainIters").value)||100;
-
-    // Gather node feature values from input boxes
-    let nodeFeatures=[];
-    for(let i=0;i<numNodes;i++){
-        let feats=[];
-        for(let f=0;f<featureSize;f++){
-            let val=parseFloat(document.getElementById(`nfeat_${i}_${f}`).value)||0.0;
-            feats.push(val);
+    
+    const nodeFeatures = [];
+    for (let i = 0; i < numNodes; i++) {
+        const feats = [];
+        let hasError = false;
+        for (let f = 0; f < featureSize; f++) {
+            const el = document.getElementById(`nfeat_${i}_${f}`);
+            if (!el) continue;
+            const val = parseFloat(el.value);
+            if (isNaN(val)) {
+                el.classList.add('error');
+                hasError = true;
+            } else {
+                feats.push(val);
+            }
+        }
+        if (hasError) {
+            errors.push({ field: 'nodeInputs', msg: `Node ${i} has invalid features` });
         }
         nodeFeatures.push(feats);
     }
-    // Read out edge list from textarea (as lines)
-    let edgeLines=document.getElementById("edgeList").value.split('\n');
-    let edges=[];
-    for(let line of edgeLines){
-        let vals=line.trim().split(',');
-        if(vals.length!==2) continue; // skip if not proper (source, target)
-        let s=parseInt(vals[0]), t=parseInt(vals[1]);
-        if(isNaN(s)||isNaN(t)) continue;
-        if(s<numNodes && t<numNodes)
-            edges.push(new Edge(s,t));
+    
+    const edgeText = document.getElementById('edgeList').value;
+    const edges = parseEdges(edgeText, numNodes);
+    if (edges.errors.length > 0) {
+        document.getElementById('edgeList').classList.add('error');
+        errors.push({ field: 'edgeList', msg: edges.errors.join('; ') });
     }
-    // Parse out the target output
-    let targetVals=document.getElementById("targetOutput").value.split(',');
-    let target=[];
-    for(let v of targetVals)
-        target.push(parseFloat(v));
-    if(target.length!==outputSize) {
-        document.getElementById("output").innerHTML='<span style="color:red">Error: Target output has wrong size.</span>';
+    
+    const targetText = document.getElementById('targetOutput').value;
+    const targetVals = targetText.split(',').map(v => parseFloat(v.trim()));
+    if (targetVals.some(isNaN)) {
+        document.getElementById('targetOutput').classList.add('error');
+        errors.push({ field: 'targetOutput', msg: 'Target contains non-numeric values' });
+    } else if (targetVals.length !== outputSize) {
+        document.getElementById('targetOutput').classList.add('error');
+        errors.push({ field: 'targetOutput', msg: `Target size (${targetVals.length}) doesn't match output size (${outputSize})` });
+    }
+    
+    return { valid: errors.length === 0, errors, nodeFeatures, edges: edges.edges, target: targetVals };
+}
+
+function parseEdges(text, numNodes) {
+    const lines = text.trim().split('\n');
+    const edges = [];
+    const errors = [];
+    const deduplicate = document.getElementById('dedupEdges').checked;
+    const seen = new Set();
+    
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line) continue;
+        
+        const parts = line.split(',');
+        if (parts.length !== 2) {
+            errors.push(`Line ${i + 1}: expected "source,target"`);
+            continue;
+        }
+        
+        const s = parseInt(parts[0].trim());
+        const t = parseInt(parts[1].trim());
+        
+        if (isNaN(s) || isNaN(t)) {
+            errors.push(`Line ${i + 1}: non-numeric values`);
+            continue;
+        }
+        
+        if (s < 0 || s >= numNodes || t < 0 || t >= numNodes) {
+            errors.push(`Line ${i + 1}: node index out of range`);
+            continue;
+        }
+        
+        const key = `${s}-${t}`;
+        if (deduplicate && seen.has(key)) continue;
+        seen.add(key);
+        
+        edges.push(new Edge(s, t));
+    }
+    
+    if (edges.length > CONFIG.MAX_EDGES) {
+        errors.push(`Too many edges (max ${CONFIG.MAX_EDGES})`);
+    }
+    
+    return { edges, errors };
+}
+
+function clearErrors() {
+    document.querySelectorAll('.error').forEach(el => el.classList.remove('error'));
+    document.getElementById('nodeInputError').innerHTML = '';
+    document.getElementById('edgeError').innerHTML = '';
+    document.getElementById('targetError').innerHTML = '';
+}
+
+function showError(field, msg) {
+    const errorDiv = document.getElementById(field + 'Error') || document.getElementById('output');
+    if (errorDiv) {
+        errorDiv.innerHTML = `<div class="error-msg">${escapeHtml(msg)}</div>`;
+    }
+}
+
+function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+// ==================== UI FUNCTIONS ====================
+
+function buildGraphInputs() {
+    const numNodes = Math.min(parseInt(document.getElementById('numNodes').value) || 5, CONFIG.MAX_NODES);
+    const featureSize = Math.min(parseInt(document.getElementById('featureSize').value) || 3, 64);
+    const container = document.getElementById('nodeInputs');
+    container.innerHTML = '';
+    
+    for (let i = 0; i < numNodes; i++) {
+        const row = document.createElement('div');
+        row.className = 'node-input-row';
+        
+        const label = document.createElement('span');
+        label.className = 'node-input-label';
+        label.textContent = `N${i}:`;
+        row.appendChild(label);
+        
+        for (let f = 0; f < featureSize; f++) {
+            const inp = document.createElement('input');
+            inp.type = 'text';
+            inp.className = 'nodevals';
+            inp.id = `nfeat_${i}_${f}`;
+            inp.value = (Math.random()).toFixed(2);
+            row.appendChild(inp);
+        }
+        
+        container.appendChild(row);
+    }
+    
+    updateEdgeStats();
+}
+
+function randomizeFeatures() {
+    const numNodes = parseInt(document.getElementById('numNodes').value) || 5;
+    const featureSize = parseInt(document.getElementById('featureSize').value) || 3;
+    
+    for (let i = 0; i < numNodes; i++) {
+        for (let f = 0; f < featureSize; f++) {
+            const el = document.getElementById(`nfeat_${i}_${f}`);
+            if (el) el.value = (Math.random()).toFixed(2);
+        }
+    }
+}
+
+function applyConfig() {
+    buildGraphInputs();
+    currentGNN = null;
+    lossHistory = [];
+    updateLossChart();
+    updateMetrics(null, null, null);
+    document.getElementById('output').innerHTML = 'Configuration applied. Ready to train.';
+}
+
+function updateSliderDisplay() {
+    const lr = Math.pow(10, parseFloat(document.getElementById('learningRate').value));
+    document.getElementById('lrDisplay').textContent = lr.toFixed(4);
+    
+    const iters = parseInt(document.getElementById('trainIters').value);
+    document.getElementById('iterDisplay').textContent = iters;
+}
+
+function updateEdgeStats() {
+    const numNodes = parseInt(document.getElementById('numNodes').value) || 5;
+    const { edges, errors } = parseEdges(document.getElementById('edgeList').value, numNodes);
+    const undirected = document.getElementById('undirected').checked;
+    const effectiveEdges = undirected ? edges.length * 2 : edges.length;
+    
+    document.getElementById('edgeStats').textContent = 
+        `${edges.length} edges defined${undirected ? ` (${effectiveEdges} with reverse)` : ''}${errors.length ? `, ${errors.length} warnings` : ''}`;
+}
+
+document.getElementById('edgeList').addEventListener('input', updateEdgeStats);
+document.getElementById('undirected').addEventListener('change', updateEdgeStats);
+
+// ==================== TRAINING ====================
+
+async function runGNNTrain() {
+    if (isTraining) return;
+    
+    const validation = validateInputs();
+    if (!validation.valid) {
+        validation.errors.forEach(e => showError(e.field, e.msg));
         return;
     }
-
-    // Build the graph object
-    let graph=new Graph(numNodes);
-    graph.NodeFeatures=nodeFeatures; graph.Edges=edges;
-
-    // Create the GNN core object
-    let gnn=new GraphNeuralNetwork(featureSize,hiddenSize,outputSize,numLayers);
-
-    // Train the GNN: Run several iterations to adjust weights
-    for(let i=0;i<trainIters;i++)
-        gnn.train(graph,target);
-
-    // After training, get prediction for this graph
-    let prediction=gnn.predict(graph);
-
-    // Show results in output div
-    document.getElementById("output").innerHTML=
-        "<b>Prediction:</b> ["+prediction.map(x=>x.toFixed(4)).join(", ")+"]<br>"+
-        "<b>Trained for "+trainIters+" iterations.</b>";
+    
+    isTraining = true;
+    stopRequested = false;
+    
+    document.getElementById('trainBtn').disabled = true;
+    document.getElementById('stopBtn').disabled = false;
+    document.getElementById('progressContainer').style.display = 'block';
+    
+    const numNodes = parseInt(document.getElementById('numNodes').value);
+    const featureSize = parseInt(document.getElementById('featureSize').value);
+    const hiddenSize = parseInt(document.getElementById('hiddenSize').value);
+    const outputSize = parseInt(document.getElementById('outputSize').value);
+    const numLayers = parseInt(document.getElementById('numLayers').value);
+    const undirected = document.getElementById('undirected').checked;
+    const selfLoops = document.getElementById('selfLoops').checked;
+    
+    const learningRate = Math.pow(10, parseFloat(document.getElementById('learningRate').value));
+    const trainIters = Math.min(parseInt(document.getElementById('trainIters').value), CONFIG.MAX_ITERATIONS);
+    const activationType = document.getElementById('activation').value;
+    const lossFunctionType = document.getElementById('lossFunction').value;
+    
+    const graph = new Graph(numNodes);
+    graph.nodeFeatures = validation.nodeFeatures;
+    graph.edges = validation.edges;
+    graph.buildAdjacencyList(undirected, selfLoops);
+    
+    const configChanged = !currentGNN || 
+        currentGNN.featureSize !== featureSize ||
+        currentGNN.hiddenSize !== hiddenSize ||
+        currentGNN.outputSize !== outputSize ||
+        currentGNN.numMPLayers !== numLayers;
+    
+    if (configChanged) {
+        currentGNN = new GraphNeuralNetwork(featureSize, hiddenSize, outputSize, numLayers);
+        lossHistory = [];
+    }
+    
+    currentGNN.learningRate = learningRate;
+    currentGNN.activationType = activationType;
+    currentGNN.lossFunctionType = lossFunctionType;
+    
+    const target = validation.target;
+    let lastLoss = null;
+    
+    for (let i = 0; i < trainIters && !stopRequested; i++) {
+        const result = currentGNN.train(graph, target);
+        lossHistory.push(result.loss);
+        
+        if (i % CONFIG.ANIMATION_BATCH === 0 || i === trainIters - 1) {
+            const delta = lastLoss !== null ? result.loss - lastLoss : null;
+            updateMetrics(result.loss, i + 1, delta);
+            updateProgress((i + 1) / trainIters * 100);
+            updateLossChart();
+            updateGraphViz(graph, currentGNN.nodeEmbeddings);
+            lastLoss = result.loss;
+            
+            await new Promise(r => setTimeout(r, 0));
+        }
+    }
+    
+    const finalPrediction = currentGNN.predict(graph);
+    const finalLoss = currentGNN.lossFunction.fn(finalPrediction, target);
+    
+    document.getElementById('output').innerHTML = `
+        <b>Prediction:</b> [${finalPrediction.map(x => x.toFixed(4)).join(', ')}]<br>
+        <b>Target:</b> [${target.join(', ')}]<br>
+        <b>Final Loss:</b> ${finalLoss.toFixed(6)}<br>
+        <b>Trained for ${lossHistory.length} iterations</b>
+    `;
+    
+    isTraining = false;
+    document.getElementById('trainBtn').disabled = false;
+    document.getElementById('stopBtn').disabled = true;
 }
+
+function stopTraining() {
+    stopRequested = true;
+}
+
+function resetModel() {
+    currentGNN = null;
+    lossHistory = [];
+    graphState = null;
+    updateLossChart();
+    updateMetrics(null, null, null);
+    document.getElementById('output').innerHTML = 'Model reset. Ready to train.';
+    clearGraphViz();
+}
+
+// ==================== METRICS & VISUALIZATION ====================
+
+function updateMetrics(loss, iter, delta) {
+    document.getElementById('metricLoss').textContent = loss !== null ? loss.toFixed(6) : '-';
+    document.getElementById('metricIter').textContent = iter !== null ? iter : '-';
+    document.getElementById('metricDelta').textContent = delta !== null ? 
+        (delta >= 0 ? '+' : '') + delta.toFixed(6) : '-';
+    document.getElementById('metricDelta').style.color = delta !== null ? 
+        (delta < 0 ? '#16a34a' : delta > 0 ? '#dc2626' : '#64748b') : '#64748b';
+}
+
+function updateProgress(percent) {
+    document.getElementById('progressFill').style.width = percent + '%';
+}
+
+function updateLossChart() {
+    const canvas = document.getElementById('lossChart');
+    const ctx = canvas.getContext('2d');
+    const rect = canvas.getBoundingClientRect();
+    
+    canvas.width = rect.width * window.devicePixelRatio;
+    canvas.height = rect.height * window.devicePixelRatio;
+    ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+    
+    const width = rect.width;
+    const height = rect.height;
+    const margin = { top: 20, right: 20, bottom: 30, left: 50 };
+    const innerWidth = width - margin.left - margin.right;
+    const innerHeight = height - margin.top - margin.bottom;
+    
+    ctx.clearRect(0, 0, width, height);
+    
+    if (lossHistory.length < 2) {
+        ctx.fillStyle = '#64748b';
+        ctx.font = '12px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('Loss chart will appear during training', width / 2, height / 2);
+        return;
+    }
+    
+    const maxLoss = Math.max(...lossHistory) * 1.1;
+    const minLoss = 0;
+    
+    ctx.strokeStyle = '#e2e8f0';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let i = 0; i <= 5; i++) {
+        const y = margin.top + (innerHeight * i / 5);
+        ctx.moveTo(margin.left, y);
+        ctx.lineTo(margin.left + innerWidth, y);
+    }
+    ctx.stroke();
+    
+    ctx.strokeStyle = '#3b82f6';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    
+    for (let i = 0; i < lossHistory.length; i++) {
+        const x = margin.left + (i / (lossHistory.length - 1)) * innerWidth;
+        const y = margin.top + innerHeight - ((lossHistory[i] - minLoss) / (maxLoss - minLoss)) * innerHeight;
+        
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    
+    ctx.fillStyle = '#64748b';
+    ctx.font = '10px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Iteration', margin.left + innerWidth / 2, height - 5);
+    
+    ctx.save();
+    ctx.translate(12, margin.top + innerHeight / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.fillText('Loss', 0, 0);
+    ctx.restore();
+    
+    ctx.textAlign = 'right';
+    ctx.fillText(maxLoss.toFixed(3), margin.left - 5, margin.top + 4);
+    ctx.fillText('0', margin.left - 5, margin.top + innerHeight + 4);
+    
+    ctx.textAlign = 'left';
+    ctx.fillText('0', margin.left, height - 15);
+    ctx.textAlign = 'right';
+    ctx.fillText(lossHistory.length.toString(), margin.left + innerWidth, height - 15);
+}
+
+function updateGraphViz(graph, embeddings) {
+    const container = document.getElementById('graphViz');
+    const canvas = document.getElementById('graphCanvas');
+    const ctx = canvas.getContext('2d');
+    
+    const rect = container.getBoundingClientRect();
+    canvas.width = rect.width * window.devicePixelRatio;
+    canvas.height = rect.height * window.devicePixelRatio;
+    ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+    
+    const width = rect.width;
+    const height = rect.height;
+    
+    ctx.clearRect(0, 0, width, height);
+    
+    if (!graphState || graphState.numNodes !== graph.numNodes) {
+        graphState = {
+            numNodes: graph.numNodes,
+            positions: []
+        };
+        for (let i = 0; i < graph.numNodes; i++) {
+            const angle = (2 * Math.PI * i) / graph.numNodes;
+            const radius = Math.min(width, height) * 0.35;
+            graphState.positions.push({
+                x: width / 2 + radius * Math.cos(angle - Math.PI / 2),
+                y: height / 2 + radius * Math.sin(angle - Math.PI / 2)
+            });
+        }
+    }
+    
+    const undirected = document.getElementById('undirected').checked;
+    const drawnEdges = new Set();
+    
+    ctx.strokeStyle = '#94a3b8';
+    ctx.lineWidth = 2;
+    
+    for (const edge of graph.edges) {
+        const key = undirected ? 
+            `${Math.min(edge.source, edge.target)}-${Math.max(edge.source, edge.target)}` :
+            `${edge.source}-${edge.target}`;
+        
+        if (drawnEdges.has(key)) continue;
+        drawnEdges.add(key);
+        
+        const p1 = graphState.positions[edge.source];
+        const p2 = graphState.positions[edge.target];
+        
+        ctx.beginPath();
+        ctx.moveTo(p1.x, p1.y);
+        ctx.lineTo(p2.x, p2.y);
+        ctx.stroke();
+        
+        if (!undirected) {
+            const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
+            const arrowLen = 10;
+            const arrowX = p2.x - 20 * Math.cos(angle);
+            const arrowY = p2.y - 20 * Math.sin(angle);
+            
+            ctx.beginPath();
+            ctx.moveTo(arrowX, arrowY);
+            ctx.lineTo(arrowX - arrowLen * Math.cos(angle - 0.4), arrowY - arrowLen * Math.sin(angle - 0.4));
+            ctx.moveTo(arrowX, arrowY);
+            ctx.lineTo(arrowX - arrowLen * Math.cos(angle + 0.4), arrowY - arrowLen * Math.sin(angle + 0.4));
+            ctx.stroke();
+        }
+    }
+    
+    const magnitudes = [];
+    for (let i = 0; i < graph.numNodes; i++) {
+        const emb = embeddings?.[i] || [];
+        const mag = Math.sqrt(emb.reduce((s, v) => s + v * v, 0));
+        magnitudes.push(mag);
+    }
+    const maxMag = Math.max(...magnitudes, 0.001);
+    
+    for (let i = 0; i < graph.numNodes; i++) {
+        const pos = graphState.positions[i];
+        const normMag = magnitudes[i] / maxMag;
+        
+        const r = Math.round(68 + normMag * 120);
+        const g = Math.round(119 - normMag * 50);
+        const b = Math.round(200 - normMag * 100);
+        
+        ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+        ctx.strokeStyle = '#1e293b';
+        ctx.lineWidth = 2;
+        
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, 18, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        
+        ctx.fillStyle = 'white';
+        ctx.font = 'bold 11px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(i.toString(), pos.x, pos.y);
+    }
+}
+
+function clearGraphViz() {
+    const canvas = document.getElementById('graphCanvas');
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    graphState = null;
+}
+
+// ==================== MODEL PERSISTENCE ====================
+
+function saveModel() {
+    if (!currentGNN) {
+        alert('No model to save. Train first.');
+        return;
+    }
+    
+    const data = {
+        weights: currentGNN.getWeights(),
+        lossHistory: lossHistory,
+        timestamp: new Date().toISOString()
+    };
+    
+    try {
+        localStorage.setItem('gnn_model', JSON.stringify(data));
+        document.getElementById('output').innerHTML += '<div class="success-msg">Model saved to localStorage</div>';
+    } catch (e) {
+        console.error('localStorage save failed:', e);
+    }
+    
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'gnn_model.json';
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+function loadModel() {
+    const stored = localStorage.getItem('gnn_model');
+    if (stored) {
+        try {
+            const data = JSON.parse(stored);
+            loadModelData(data);
+            return;
+        } catch (e) {
+            console.error('Failed to load from localStorage:', e);
+        }
+    }
+    
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.onchange = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        
+        try {
+            const text = await file.text();
+            const data = JSON.parse(text);
+            loadModelData(data);
+        } catch (err) {
+            alert('Failed to load model: ' + err.message);
+        }
+    };
+    input.click();
+}
+
+function loadModelData(data) {
+    const config = data.weights.config;
+    
+    document.getElementById('featureSize').value = config.featureSize;
+    document.getElementById('hiddenSize').value = config.hiddenSize;
+    document.getElementById('outputSize').value = config.outputSize;
+    document.getElementById('numLayers').value = config.numMPLayers;
+    
+    currentGNN = new GraphNeuralNetwork(
+        config.featureSize,
+        config.hiddenSize,
+        config.outputSize,
+        config.numMPLayers
+    );
+    currentGNN.setWeights(data.weights);
+    
+    lossHistory = data.lossHistory || [];
+    updateLossChart();
+    
+    document.getElementById('output').innerHTML = `<div class="success-msg">Model loaded (saved ${data.timestamp || 'unknown'})</div>`;
+}
+
+// ==================== INITIALIZATION ====================
+
+buildGraphInputs();
+updateSliderDisplay();
+updateEdgeStats();
+updateLossChart();
 </script>
 </body>
 </html>
