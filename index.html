@@ -207,6 +207,7 @@
                     <div style="margin-top:0.75rem;">
                         <button onclick="applyConfig()">Apply Config</button>
                         <button class="secondary" onclick="randomizeFeatures()">Randomize Features</button>
+                        <button class="danger" onclick="resetModel()">Reset Model</button>
                     </div>
                 </div>
                 
@@ -274,7 +275,8 @@
                 <!-- Training Controls -->
                 <div class="panel section">
                     <h2>Training</h2>
-                    <button id="trainBtn" onclick="runGNNTrain()">Train & Predict</button>
+                    <button id="trainBtn" onclick="runGNNTrain()">Train</button>
+                    <button id="predictBtn" onclick="runGNNPredict()" disabled>Predict</button>
                     <button id="stopBtn" class="danger" onclick="stopTraining()" disabled>Stop</button>
                     <button class="secondary" onclick="resetModel()">Reset Model</button>
                     <button class="secondary" onclick="saveModel()">Save</button>
@@ -955,87 +957,138 @@ document.getElementById('undirected').addEventListener('change', updateEdgeStats
 // ==================== TRAINING ====================
 
 async function runGNNTrain() {
-    if (isTraining) return;
-    
-    const validation = validateInputs();
-    if (!validation.valid) {
-        validation.errors.forEach(e => showError(e.field, e.msg));
-        return;
-    }
-    
-    isTraining = true;
-    stopRequested = false;
-    
-    document.getElementById('trainBtn').disabled = true;
-    document.getElementById('stopBtn').disabled = false;
-    document.getElementById('progressContainer').style.display = 'block';
-    
-    const numNodes = parseInt(document.getElementById('numNodes').value);
-    const featureSize = parseInt(document.getElementById('featureSize').value);
-    const hiddenSize = parseInt(document.getElementById('hiddenSize').value);
-    const outputSize = parseInt(document.getElementById('outputSize').value);
-    const numLayers = parseInt(document.getElementById('numLayers').value);
-    const undirected = document.getElementById('undirected').checked;
-    const selfLoops = document.getElementById('selfLoops').checked;
-    
-    const learningRate = Math.pow(10, parseFloat(document.getElementById('learningRate').value));
-    const trainIters = Math.min(parseInt(document.getElementById('trainIters').value), CONFIG.MAX_ITERATIONS);
-    const activationType = document.getElementById('activation').value;
-    const lossFunctionType = document.getElementById('lossFunction').value;
-    
-    const graph = new Graph(numNodes);
-    graph.nodeFeatures = validation.nodeFeatures;
-    graph.edges = validation.edges;
-    graph.buildAdjacencyList(undirected, selfLoops);
-    
-    const configChanged = !currentGNN || 
-        currentGNN.featureSize !== featureSize ||
-        currentGNN.hiddenSize !== hiddenSize ||
-        currentGNN.outputSize !== outputSize ||
-        currentGNN.numMPLayers !== numLayers;
-    
-    if (configChanged) {
-        currentGNN = new GraphNeuralNetwork(featureSize, hiddenSize, outputSize, numLayers);
-        lossHistory = [];
-    }
-    
-    currentGNN.learningRate = learningRate;
-    currentGNN.activationType = activationType;
-    currentGNN.lossFunctionType = lossFunctionType;
-    
-    const target = validation.target;
-    let lastLoss = null;
-    
-    for (let i = 0; i < trainIters && !stopRequested; i++) {
-        const result = currentGNN.train(graph, target);
-        lossHistory.push(result.loss);
-        
-        if (i % CONFIG.ANIMATION_BATCH === 0 || i === trainIters - 1) {
-            const delta = lastLoss !== null ? result.loss - lastLoss : null;
-            updateMetrics(result.loss, i + 1, delta);
-            updateProgress((i + 1) / trainIters * 100);
-            updateLossChart();
-            updateGraphViz(graph, currentGNN.nodeEmbeddings);
-            lastLoss = result.loss;
-            
-            await new Promise(r => setTimeout(r, 0));
-        }
-    }
-    
-    const finalPrediction = currentGNN.predict(graph);
-    const finalLoss = currentGNN.lossFunction.fn(finalPrediction, target);
-    
-    document.getElementById('output').innerHTML = `
-        <b>Prediction:</b> [${finalPrediction.map(x => x.toFixed(4)).join(', ')}]<br>
-        <b>Target:</b> [${target.join(', ')}]<br>
-        <b>Final Loss:</b> ${finalLoss.toFixed(6)}<br>
-        <b>Trained for ${lossHistory.length} iterations</b>
-    `;
-    
-    isTraining = false;
-    document.getElementById('trainBtn').disabled = false;
-    document.getElementById('stopBtn').disabled = true;
-}
+     if (isTraining) return;
+     
+     const validation = validateInputs();
+     if (!validation.valid) {
+         validation.errors.forEach(e => showError(e.field, e.msg));
+         return;
+     }
+     
+     isTraining = true;
+     stopRequested = false;
+     
+     document.getElementById('trainBtn').disabled = true;
+     document.getElementById('stopBtn').disabled = false;
+     document.getElementById('progressContainer').style.display = 'block';
+     
+     const numNodes = parseInt(document.getElementById('numNodes').value);
+     const featureSize = parseInt(document.getElementById('featureSize').value);
+     const hiddenSize = parseInt(document.getElementById('hiddenSize').value);
+     const outputSize = parseInt(document.getElementById('outputSize').value);
+     const numLayers = parseInt(document.getElementById('numLayers').value);
+     const undirected = document.getElementById('undirected').checked;
+     const selfLoops = document.getElementById('selfLoops').checked;
+     
+     const learningRate = Math.pow(10, parseFloat(document.getElementById('learningRate').value));
+     const trainIters = Math.min(parseInt(document.getElementById('trainIters').value), CONFIG.MAX_ITERATIONS);
+     const activationType = document.getElementById('activation').value;
+     const lossFunctionType = document.getElementById('lossFunction').value;
+     
+     const graph = new Graph(numNodes);
+     graph.nodeFeatures = validation.nodeFeatures;
+     graph.edges = validation.edges;
+     graph.buildAdjacencyList(undirected, selfLoops);
+     
+     const configChanged = !currentGNN || 
+         currentGNN.featureSize !== featureSize ||
+         currentGNN.hiddenSize !== hiddenSize ||
+         currentGNN.outputSize !== outputSize ||
+         currentGNN.numMPLayers !== numLayers;
+     
+     if (configChanged) {
+         currentGNN = new GraphNeuralNetwork(featureSize, hiddenSize, outputSize, numLayers);
+         lossHistory = [];
+     }
+     
+     currentGNN.learningRate = learningRate;
+     currentGNN.activationType = activationType;
+     currentGNN.lossFunctionType = lossFunctionType;
+     
+     // Store graph and target for prediction
+     window.lastGraph = graph;
+     window.lastTarget = validation.target;
+     
+     let lastLoss = null;
+     
+     for (let i = 0; i < trainIters && !stopRequested; i++) {
+         const result = currentGNN.train(graph, validation.target);
+         lossHistory.push(result.loss);
+         
+         if (i % CONFIG.ANIMATION_BATCH === 0 || i === trainIters - 1) {
+             const delta = lastLoss !== null ? result.loss - lastLoss : null;
+             updateMetrics(result.loss, i + 1, delta);
+             updateProgress((i + 1) / trainIters * 100);
+             updateLossChart();
+             updateGraphViz(graph, currentGNN.nodeEmbeddings);
+             lastLoss = result.loss;
+             
+             await new Promise(r => setTimeout(r, 0));
+         }
+     }
+     
+     document.getElementById('output').innerHTML = `<div class="success-msg">Training complete. Click Predict to see results.</div>`;
+     
+     isTraining = false;
+     document.getElementById('trainBtn').disabled = false;
+     document.getElementById('predictBtn').disabled = false;
+     document.getElementById('stopBtn').disabled = true;
+ }
+ 
+ function runGNNPredict() {
+     if (!currentGNN) {
+         alert('Load or train a model first.');
+         return;
+     }
+     
+     // Use stored graph/target from training, or build from UI
+     let graph = window.lastGraph;
+     let target = window.lastTarget;
+     
+     if (!graph || !target) {
+         // Build from UI configuration
+         const numNodes = parseInt(document.getElementById('numNodes').value);
+         const featureSize = parseInt(document.getElementById('featureSize').value);
+         const nodeFeatures = [];
+         
+         for (let i = 0; i < numNodes; i++) {
+             const features = [];
+             for (let f = 0; f < featureSize; f++) {
+                 const val = parseFloat(document.getElementById(`nfeat_${i}_${f}`)?.value || 0);
+                 features.push(isNaN(val) ? 0 : val);
+             }
+             nodeFeatures.push(features);
+         }
+         
+         const { edges } = parseEdges(document.getElementById('edgeList').value, numNodes);
+         const undirected = document.getElementById('undirected').checked;
+         const selfLoops = document.getElementById('selfLoops').checked;
+         
+         graph = new Graph(numNodes);
+         graph.nodeFeatures = nodeFeatures;
+         graph.edges = edges;
+         graph.buildAdjacencyList(undirected, selfLoops);
+         
+         // Parse target output
+         const targetStr = document.getElementById('targetOutput').value.trim();
+         target = targetStr.split(',').map(v => parseFloat(v.trim())).filter(v => !isNaN(v));
+         
+         if (target.length === 0) {
+             alert('Please enter target output values (comma-separated).');
+             return;
+         }
+     }
+     
+     const finalPrediction = currentGNN.predict(graph);
+     const finalLoss = currentGNN.lossFunction.fn(finalPrediction, target);
+     
+     document.getElementById('output').innerHTML = `
+         <b>Prediction:</b> [${finalPrediction.map(x => x.toFixed(4)).join(', ')}]<br>
+         <b>Target:</b> [${target.join(', ')}]<br>
+         <b>Final Loss:</b> ${finalLoss.toFixed(6)}<br>
+         ${lossHistory.length > 0 ? `<b>Trained for ${lossHistory.length} iterations</b>` : '<i>Model not trained (using loaded weights)</i>'}
+     `;
+ }
 
 function stopTraining() {
     stopRequested = true;
@@ -1305,14 +1358,22 @@ function loadModel() {
     input.click();
 }
 
-function loadModelData(data) {
-     // Handle both camelCase and snake_case from Pascal (as generated by GNN)
-     const config = data.weights?.config || data.weights || data;
+function convertNeuronsToDenseFormat(layerData) {
+     // Convert from neurons array format to DenseLayer.setWeights format
+     if (!layerData || !layerData.neurons) return null;
      
-     const featureSize = config.featureSize || config.feature_size;
-     const hiddenSize = config.hiddenSize || config.hidden_size;
-     const outputSize = config.outputSize || config.output_size;
-     const numMPLayers = config.numMPLayers || config.num_message_passing_layers;
+     const weights = layerData.neurons.map(n => n.weights);
+     const biases = layerData.neurons.map(n => n.bias || 0);
+     
+     return { weights, biases };
+ }
+ 
+ function loadModelData(data) {
+     // Extract config - handle nested or root-level snake_case
+     const featureSize = data.feature_size || data.featureSize || (data.weights?.featureSize);
+     const hiddenSize = data.hidden_size || data.hiddenSize || (data.weights?.hiddenSize);
+     const outputSize = data.output_size || data.outputSize || (data.weights?.outputSize);
+     const numMPLayers = data.num_message_passing_layers || data.numMPLayers || (data.weights?.numMPLayers);
      
      document.getElementById('featureSize').value = featureSize;
      document.getElementById('hiddenSize').value = hiddenSize;
@@ -1326,22 +1387,42 @@ function loadModelData(data) {
          numMPLayers
      );
      
-     // Normalize weights data from snake_case to camelCase
-     const weightsData = data.weights || data;
-     const normalizedWeights = {
-         messageLayers: weightsData.message_layers || weightsData.messageLayers,
-         updateLayers: weightsData.update_layers || weightsData.updateLayers,
-         readoutLayer: weightsData.readout_layer || weightsData.readoutLayer,
-         outputLayer: weightsData.output_layer || weightsData.outputLayer
-     };
+     // Get layer data, handling both snake_case and camelCase
+     const messageLayers = data.message_layers || data.messageLayers || [];
+     const updateLayers = data.update_layers || data.updateLayers || [];
+     const readoutLayer = data.readout_layer || data.readoutLayer;
+     const outputLayer = data.output_layer || data.outputLayer;
      
-     currentGNN.setWeights(normalizedWeights);
+     // Convert each layer from neuron format to DenseLayer format
+     messageLayers.forEach((layer, i) => {
+         const converted = convertNeuronsToDenseFormat(layer);
+         if (converted) currentGNN.messageLayers[i].setWeights(converted);
+     });
      
-     lossHistory = data.lossHistory || data.loss_history || [];
+     updateLayers.forEach((layer, i) => {
+         const converted = convertNeuronsToDenseFormat(layer);
+         if (converted) currentGNN.updateLayers[i].setWeights(converted);
+     });
+     
+     if (readoutLayer) {
+         const converted = convertNeuronsToDenseFormat(readoutLayer);
+         if (converted) currentGNN.readoutLayer.setWeights(converted);
+     }
+     
+     if (outputLayer) {
+         const converted = convertNeuronsToDenseFormat(outputLayer);
+         if (converted) currentGNN.outputLayer.setWeights(converted);
+     }
+     
+     lossHistory = data.loss_history || data.lossHistory || [];
      updateLossChart();
      
-     document.getElementById('output').innerHTML = `<div class="success-msg">Model loaded (saved ${data.timestamp || 'unknown'})</div>`;
- }
+     // Set up for prediction - user needs to configure graph/target after loading
+     document.getElementById('trainBtn').disabled = false;
+     document.getElementById('predictBtn').disabled = false;
+     
+     document.getElementById('output').innerHTML = `<div class="success-msg">Model loaded. Configure graph and target, then click Train or Predict.</div>`;
+     }
 
 // ==================== INITIALIZATION ====================
 
