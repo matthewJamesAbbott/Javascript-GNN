@@ -1,6 +1,7 @@
 <!--
- Matthew Abbott 2025
- GNN
+   Matthew Abbott
+   Graph Neural Network (GNN)
+
 -->
 
 <!DOCTYPE html>
@@ -1324,7 +1325,17 @@ function loadModelData(data) {
          outputSize,
          numMPLayers
      );
-     currentGNN.setWeights(data.weights || data);
+     
+     // Normalize weights data from snake_case to camelCase
+     const weightsData = data.weights || data;
+     const normalizedWeights = {
+         messageLayers: weightsData.message_layers || weightsData.messageLayers,
+         updateLayers: weightsData.update_layers || weightsData.updateLayers,
+         readoutLayer: weightsData.readout_layer || weightsData.readoutLayer,
+         outputLayer: weightsData.output_layer || weightsData.outputLayer
+     };
+     
+     currentGNN.setWeights(normalizedWeights);
      
      lossHistory = data.lossHistory || data.loss_history || [];
      updateLossChart();
