@@ -1,7 +1,25 @@
 <!--
-   Matthew Abbott
-   Graph Neural Network (GNN)
+MIT License
 
+Copyright (c) 2025 Matthew Abbott
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions: 
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 -->
 
 <!DOCTYPE html>
@@ -14,7 +32,7 @@
         body { 
             font-family: 'Segoe UI', Arial, sans-serif; 
             margin: 0; padding: 1.5rem;
-            background: #f8fafc;
+            background: #fafafa;
             color: #1e293b;
         }
         h1 { color: #0f172a; margin-bottom: 0.5rem; }
@@ -59,20 +77,21 @@
         
         button { 
             padding: 0.5rem 1rem; 
-            background: #3b82f6; 
+            background: #5a5a5a; 
             color: white; 
             border: none; 
-            border-radius: 6px; 
+            border-radius: 0; 
             cursor: pointer;
             font-size: 0.9rem;
             margin: 0.25rem 0.25rem 0.25rem 0;
             transition: background 0.2s;
         }
-        button:hover { background: #2563eb; }
-        button:disabled { background: #94a3b8; cursor: not-allowed; }
-        button.secondary { background: #64748b; }
-        button.secondary:hover { background: #475569; }
-        button.danger { background: #ef4444; }
+        button:hover { background: #4a4a4a; }
+        button:active { background: #3a3a3a; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+        button.secondary { background: #5a5a5a; }
+        button.secondary:hover { background: #4a4a4a; }
+        button.danger { background: #ef4444; border-radius: 0; }
         button.danger:hover { background: #dc2626; }
         
         .error-msg { 
@@ -185,6 +204,12 @@
     <div class="container">
         <h1>Graph Neural Network</h1>
         <p style="color:#64748b; margin-bottom:1.5rem;">Full backpropagation through all layers with live visualization</p>
+        
+        <!-- Network Architecture Visualization -->
+        <div class="panel section" style="margin-bottom:1.5rem; display:none;" id="networkVizSection">
+            <h2>Network Architecture</h2>
+            <div id="networkVisualization"></div>
+        </div>
         
         <div class="grid">
             <!-- Left Column: Configuration & Inputs -->
@@ -930,6 +955,7 @@ function applyConfig() {
     lossHistory = [];
     updateLossChart();
     updateMetrics(null, null, null);
+    visualizeGNNArchitecture(null, 'networkVisualization');
     document.getElementById('output').innerHTML = 'Configuration applied. Ready to train.';
 }
 
@@ -1300,16 +1326,52 @@ function clearGraphViz() {
 
 // ==================== MODEL PERSISTENCE ====================
 
+function convertDenseFormatToNeurons(denseLayer) {
+    // Convert from DenseLayer.getWeights() format to neuron format
+    const weights = denseLayer.weights || [];
+    const biases = denseLayer.biases || [];
+    const neurons = [];
+    
+    for (let i = 0; i < biases.length; i++) {
+        neurons.push({
+            weights: weights[i] || [],
+            bias: biases[i] || 0
+        });
+    }
+    
+    return neurons;
+}
+
 function saveModel() {
     if (!currentGNN) {
         alert('No model to save. Train first.');
         return;
     }
     
+    // Convert to Pascal-compatible neuron format
+    const convertLayerToJSON = (layer) => {
+        const denseWeights = layer.getWeights();
+        return {
+            num_inputs: layer.inputSize,
+            num_outputs: layer.outputSize,
+            neurons: convertDenseFormatToNeurons(denseWeights)
+        };
+    };
+    
     const data = {
-        weights: currentGNN.getWeights(),
-        lossHistory: lossHistory,
-        timestamp: new Date().toISOString()
+        feature_size: currentGNN.featureSize,
+        hidden_size: currentGNN.hiddenSize,
+        output_size: currentGNN.outputSize,
+        num_message_passing_layers: currentGNN.numMPLayers,
+        learning_rate: currentGNN.learningRate,
+        activation: currentGNN.activationType,
+        loss_type: currentGNN.lossFunctionType,
+        max_iterations: 100,
+        message_layers: currentGNN.messageLayers.map(convertLayerToJSON),
+        update_layers: currentGNN.updateLayers.map(convertLayerToJSON),
+        readout_layer: convertLayerToJSON(currentGNN.readoutLayer),
+        output_layer: convertLayerToJSON(currentGNN.outputLayer),
+        loss_history: lossHistory
     };
     
     try {
@@ -1329,56 +1391,68 @@ function saveModel() {
 }
 
 function loadModel() {
-    const stored = localStorage.getItem('gnn_model');
-    if (stored) {
-        try {
-            const data = JSON.parse(stored);
-            loadModelData(data);
-            return;
-        } catch (e) {
-            console.error('Failed to load from localStorage:', e);
-        }
-    }
-    
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.json';
-    input.onchange = async (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-        
-        try {
-            const text = await file.text();
-            const data = JSON.parse(text);
-            loadModelData(data);
-        } catch (err) {
-            alert('Failed to load model: ' + err.message);
-        }
-    };
-    input.click();
-}
+     const stored = localStorage.getItem('gnn_model');
+     if (stored) {
+         try {
+             const data = JSON.parse(stored);
+             loadModelData(data);
+             return;
+         } catch (e) {
+             console.error('Failed to load from localStorage:', e);
+         }
+     }
+     
+     const input = document.createElement('input');
+     input.type = 'file';
+     input.accept = '.json';
+     input.onchange = async (e) => {
+         const file = e.target.files[0];
+         if (!file) return;
+         
+         try {
+             const text = await file.text();
+             const data = JSON.parse(text);
+             loadModelData(data);
+         } catch (err) {
+             alert('Failed to load model: ' + err.message);
+         }
+     };
+     input.click();
+ }
 
-function convertNeuronsToDenseFormat(layerData) {
+ function convertNeuronsToDenseFormat(layerData) {
      // Convert from neurons array format to DenseLayer.setWeights format
      if (!layerData || !layerData.neurons) return null;
      
-     const weights = layerData.neurons.map(n => n.weights);
+     const weights = layerData.neurons.map(n => n.weights || []);
      const biases = layerData.neurons.map(n => n.bias || 0);
      
      return { weights, biases };
  }
  
  function loadModelData(data) {
-     // Extract config - handle nested or root-level snake_case
-     const featureSize = data.feature_size || data.featureSize || (data.weights?.featureSize);
-     const hiddenSize = data.hidden_size || data.hiddenSize || (data.weights?.hiddenSize);
-     const outputSize = data.output_size || data.outputSize || (data.weights?.outputSize);
-     const numMPLayers = data.num_message_passing_layers || data.numMPLayers || (data.weights?.numMPLayers);
+     // Extract config with fallback support
+     const featureSize = data.feature_size || data.featureSize || (data.config?.featureSize) || (data.weights?.featureSize);
+     const hiddenSize = data.hidden_size || data.hiddenSize || (data.config?.hiddenSize) || (data.weights?.hiddenSize);
+     const outputSize = data.output_size || data.outputSize || (data.config?.outputSize) || (data.weights?.outputSize);
+     const numMPLayers = data.num_message_passing_layers || data.numMPLayers || (data.config?.numMPLayers) || (data.weights?.numMPLayers);
+     const learningRate = data.learning_rate || data.learningRate || 0.01;
+     const activation = data.activation || data.activationType || 'relu';
+     const lossType = data.loss_type || data.lossFunctionType || 'mse';
+     
+     if (!featureSize || !hiddenSize || !outputSize || !numMPLayers) {
+         alert('Invalid model data: missing configuration');
+         return;
+     }
      
      document.getElementById('featureSize').value = featureSize;
      document.getElementById('hiddenSize').value = hiddenSize;
      document.getElementById('outputSize').value = outputSize;
      document.getElementById('numLayers').value = numMPLayers;
+     document.getElementById('learningRate').value = Math.log10(learningRate);
+     document.getElementById('activation').value = activation;
+     document.getElementById('lossFunction').value = lossType;
+     updateSliderDisplay();
      
      currentGNN = new GraphNeuralNetwork(
          featureSize,
@@ -1387,7 +1461,11 @@ function convertNeuronsToDenseFormat(layerData) {
          numMPLayers
      );
      
-     // Get layer data, handling both snake_case and camelCase
+     currentGNN.learningRate = learningRate;
+     currentGNN.activationType = activation;
+     currentGNN.lossFunctionType = lossType;
+     
+     // Get layer data - handle both snake_case and camelCase
      const messageLayers = data.message_layers || data.messageLayers || [];
      const updateLayers = data.update_layers || data.updateLayers || [];
      const readoutLayer = data.readout_layer || data.readoutLayer;
@@ -1396,12 +1474,16 @@ function convertNeuronsToDenseFormat(layerData) {
      // Convert each layer from neuron format to DenseLayer format
      messageLayers.forEach((layer, i) => {
          const converted = convertNeuronsToDenseFormat(layer);
-         if (converted) currentGNN.messageLayers[i].setWeights(converted);
+         if (converted && i < currentGNN.messageLayers.length) {
+             currentGNN.messageLayers[i].setWeights(converted);
+         }
      });
      
      updateLayers.forEach((layer, i) => {
          const converted = convertNeuronsToDenseFormat(layer);
-         if (converted) currentGNN.updateLayers[i].setWeights(converted);
+         if (converted && i < currentGNN.updateLayers.length) {
+             currentGNN.updateLayers[i].setWeights(converted);
+         }
      });
      
      if (readoutLayer) {
@@ -1421,8 +1503,163 @@ function convertNeuronsToDenseFormat(layerData) {
      document.getElementById('trainBtn').disabled = false;
      document.getElementById('predictBtn').disabled = false;
      
-     document.getElementById('output').innerHTML = `<div class="success-msg">Model loaded. Configure graph and target, then click Train or Predict.</div>`;
-     }
+     visualizeGNNArchitecture(currentGNN, 'networkVisualization');
+     document.getElementById('output').innerHTML = `<div class="success-msg">Model loaded successfully. Configure graph and target, then click Train or Predict.</div>`;
+ }
+
+// ==================== GNN ARCHITECTURE VISUALIZATION ====================
+
+function visualizeGNNArchitecture(gnn, containerId) {
+    const container = document.getElementById(containerId);
+    const section = document.getElementById('networkVizSection');
+    if (!container || !section) return;
+    
+    // Show the section
+    section.style.display = 'block';
+    
+    // Read from GNN object if available, otherwise from form
+    const featureSize = gnn?.featureSize ?? parseInt(document.getElementById('featureSize').value) ?? 3;
+    const hiddenSize = gnn?.hiddenSize ?? parseInt(document.getElementById('hiddenSize').value) ?? 16;
+    const outputSize = gnn?.outputSize ?? parseInt(document.getElementById('outputSize').value) ?? 2;
+    const numMPLayers = gnn?.numMPLayers ?? parseInt(document.getElementById('numLayers').value) ?? 2;
+    
+    const spacing = 85;
+    const padding = 20;
+    const legendSpace = 80;
+    const totalLayers = 2 + numMPLayers * 2 + 2;
+    const totalWidth = totalLayers * spacing + padding * 2 + legendSpace;
+    const totalHeight = 200;
+    
+    const svgContainer = document.createElement('div');
+    svgContainer.setAttribute('style', 'overflow-x: auto; overflow-y: hidden; border: 1px solid #ccc; background: #fafafa; border-radius: 4px; margin: 1rem 0; height: 220px;');
+    
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('width', totalWidth);
+    svg.setAttribute('height', totalHeight);
+    svg.setAttribute('style', 'display: block;');
+    
+    const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+    defs.innerHTML = `
+        <linearGradient id="msgGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" style="stop-color:#4285f4;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#1967d2;stop-opacity:1" />
+        </linearGradient>
+        <linearGradient id="updGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" style="stop-color:#34a853;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#188038;stop-opacity:1" />
+        </linearGradient>
+        <linearGradient id="readGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" style="stop-color:#ea4335;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#c5221f;stop-opacity:1" />
+        </linearGradient>
+        <linearGradient id="outGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" style="stop-color:#fbbc04;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#f57d00;stop-opacity:1" />
+        </linearGradient>
+    `;
+    svg.appendChild(defs);
+    
+    let xPos = padding + legendSpace;
+    const cy = totalHeight / 2;
+    
+    function drawBox(x, y, w, h, fill, stroke, texts) {
+        const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        const box = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        box.setAttribute('x', x - w/2);
+        box.setAttribute('y', y - h/2);
+        box.setAttribute('width', w);
+        box.setAttribute('height', h);
+        box.setAttribute('fill', fill);
+        box.setAttribute('stroke', stroke);
+        box.setAttribute('stroke-width', 1.5);
+        box.setAttribute('rx', 3);
+        g.appendChild(box);
+        
+        texts.forEach((t, i) => {
+            const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            text.setAttribute('x', x);
+            text.setAttribute('y', y - 18 + i * 14);
+            text.setAttribute('text-anchor', 'middle');
+            text.setAttribute('font-size', t.size || '9');
+            if (t.bold) text.setAttribute('font-weight', 'bold');
+            text.setAttribute('fill', t.color || 'white');
+            text.textContent = t.text;
+            g.appendChild(text);
+        });
+        svg.appendChild(g);
+    }
+    
+    // Input layer
+    drawBox(xPos, cy, 50, 70, '#e8f5e9', '#2e7d32', [
+        { text: 'Input', size: '10', bold: true, color: '#1b5e20' },
+        { text: `${featureSize}f`, size: '9', color: '#1b5e20' }
+    ]);
+    xPos += spacing;
+    
+    // Message passing layers
+    for (let i = 0; i < numMPLayers; i++) {
+        const inputSize = i === 0 ? featureSize * 2 : hiddenSize * 2;
+        drawBox(xPos, cy, 56, 70, 'url(#msgGrad)', '#1967d2', [
+            { text: `Msg${i+1}`, size: '9', bold: true },
+            { text: `${inputSize}→${hiddenSize}`, size: '8' }
+        ]);
+        xPos += spacing;
+        
+        drawBox(xPos, cy, 56, 70, 'url(#updGrad)', '#188038', [
+            { text: `Upd${i+1}`, size: '9', bold: true },
+            { text: `${hiddenSize*2}→${hiddenSize}`, size: '8' }
+        ]);
+        xPos += spacing;
+    }
+    
+    // Readout
+    drawBox(xPos, cy, 50, 70, 'url(#readGrad)', '#c5221f', [
+        { text: 'Readout', size: '9', bold: true },
+        { text: `${hiddenSize}`, size: '8' }
+    ]);
+    xPos += spacing;
+    
+    // Output
+    drawBox(xPos, cy, 56, 70, 'url(#outGrad)', '#f57d00', [
+        { text: 'Output', size: '10', bold: true },
+        { text: `${outputSize}c`, size: '8' }
+    ]);
+    
+    // Legend
+    const legendItems = [
+        { label: 'Msg', color: 'url(#msgGrad)' },
+        { label: 'Upd', color: 'url(#updGrad)' },
+        { label: 'Read', color: 'url(#readGrad)' },
+        { label: 'Out', color: 'url(#outGrad)' }
+    ];
+    let ly = cy - 30;
+    legendItems.forEach(item => {
+        const box = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        box.setAttribute('x', padding + 5);
+        box.setAttribute('y', ly);
+        box.setAttribute('width', 10);
+        box.setAttribute('height', 10);
+        box.setAttribute('fill', item.color);
+        box.setAttribute('stroke', '#666');
+        box.setAttribute('stroke-width', 0.5);
+        box.setAttribute('rx', 2);
+        svg.appendChild(box);
+        
+        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        text.setAttribute('x', padding + 19);
+        text.setAttribute('y', ly + 8);
+        text.setAttribute('font-size', '9');
+        text.setAttribute('fill', '#333');
+        text.textContent = item.label;
+        svg.appendChild(text);
+        ly += 13;
+    });
+    
+    svgContainer.innerHTML = '';
+    svgContainer.appendChild(svg);
+    container.innerHTML = '';
+    container.appendChild(svgContainer);
+}
 
 // ==================== INITIALIZATION ====================
 
